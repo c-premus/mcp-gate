@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -23,7 +24,8 @@ import (
 // version is set at build time via -ldflags.
 var version = "dev"
 
-type config struct {
+// runConfig holds all configuration needed by run().
+type runConfig struct {
 	listenAddr          string
 	upstreamURL         *url.URL
 	resourceURI         string
@@ -37,6 +39,11 @@ type config struct {
 	jwksRefreshInterval time.Duration
 	shutdownTimeout     time.Duration
 	maxRequestBody      int64
+}
+
+// runResult holds the actual bound address after server startup.
+type runResult struct {
+	Addr string
 }
 
 func main() {
@@ -72,6 +79,60 @@ func main() {
 	// Parse and validate configuration
 	cfg := loadConfig()
 
+	// Create context that cancels on SIGTERM/SIGINT.
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer cancel()
+
+	if _, err := run(ctx, cfg, nil); err != nil {
+		log.Fatalf("fatal error: %v", err)
+	}
+}
+
+// validate checks that all runConfig fields are sensible.
+func (cfg runConfig) validate() error {
+	if cfg.listenAddr == "" {
+		return fmt.Errorf("listen address is required")
+	}
+	if cfg.upstreamURL == nil {
+		return fmt.Errorf("upstream URL is required")
+	}
+	if s := cfg.upstreamURL.Scheme; s != "http" && s != "https" {
+		return fmt.Errorf("upstream URL must use http:// or https://, got %s", s)
+	}
+	if cfg.resourceURI == "" {
+		return fmt.Errorf("resource URI is required")
+	}
+	if cfg.authServer == "" {
+		return fmt.Errorf("authorization server is required")
+	}
+	if cfg.jwksURI == "" {
+		return fmt.Errorf("JWKS URI is required")
+	}
+	if cfg.expectedIssuer == "" {
+		return fmt.Errorf("expected issuer is required")
+	}
+	if cfg.expectedAudience == "" {
+		return fmt.Errorf("expected audience is required")
+	}
+	if cfg.jwksRefreshInterval <= 0 {
+		return fmt.Errorf("JWKS refresh interval must be positive, got %s", cfg.jwksRefreshInterval)
+	}
+	if cfg.shutdownTimeout <= 0 {
+		return fmt.Errorf("shutdown timeout must be positive, got %s", cfg.shutdownTimeout)
+	}
+	if cfg.maxRequestBody <= 0 {
+		return fmt.Errorf("max request body must be positive, got %d", cfg.maxRequestBody)
+	}
+	return nil
+}
+
+// run starts the mcp-gate server and blocks until ctx is cancelled or a fatal
+// error occurs. If ready is non-nil, the result is sent after the listener is bound.
+func run(ctx context.Context, cfg runConfig, ready chan<- *runResult) (*runResult, error) {
+	if err := cfg.validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+
 	// Build RFC 9728 metadata from config
 	meta := metadata.ProtectedResourceMetadata{
 		Resource:               cfg.resourceURI,
@@ -83,7 +144,7 @@ func main() {
 	}
 
 	// Create JWKS context — cancel stops background refresh
-	jwksCtx, jwksCancel := context.WithCancel(context.Background())
+	jwksCtx, jwksCancel := context.WithCancel(ctx)
 	defer jwksCancel()
 
 	// Initialize auth middleware (blocking JWKS fetch)
@@ -99,7 +160,7 @@ func main() {
 		ScopesSupported:  strings.Join(cfg.scopesSupported, " "),
 	})
 	if err != nil {
-		log.Fatalf("auth middleware init failed: %v", err)
+		return nil, fmt.Errorf("auth middleware init: %w", err)
 	}
 
 	// Create reverse proxy
@@ -137,24 +198,49 @@ func main() {
 		MaxHeaderBytes:    1 << 20, // 1MB
 	}
 
-	// Signal handling for graceful shutdown
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	// Bind listener so we know the actual address.
+	ln, err := net.Listen("tcp", cfg.listenAddr)
+	if err != nil {
+		return nil, fmt.Errorf("listen %s: %w", cfg.listenAddr, err)
+	}
 
+	result := &runResult{
+		Addr: ln.Addr().String(),
+	}
+
+	// Signal readiness with bound address (for tests).
+	if ready != nil {
+		ready <- result
+	}
+
+	// Cancellable context for server lifecycle.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	errCh := make(chan error, 1)
 	go func() {
 		slog.Info("mcp-gate starting",
-			"addr", cfg.listenAddr,
+			"version", version,
+			"addr", result.Addr,
 			"upstream", cfg.upstreamURL.String(),
 			"resource_uri", cfg.resourceURI,
 		)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("server error: %v", err)
+		if err := server.Serve(ln); err != http.ErrServerClosed {
+			errCh <- fmt.Errorf("server error: %w", err)
 		}
 	}()
 
-	<-sigCh
-	slog.Info("graceful shutdown started", "timeout", cfg.shutdownTimeout)
+	// Wait for shutdown signal or fatal error.
+	select {
+	case <-ctx.Done():
+		slog.Info("graceful shutdown started", "timeout", cfg.shutdownTimeout)
+	case err := <-errCh:
+		slog.Error("fatal server error", "error", err)
+		cancel()
+		return result, err
+	}
 
+	// Graceful shutdown with timeout.
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.shutdownTimeout)
 	defer shutdownCancel()
 
@@ -164,9 +250,10 @@ func main() {
 
 	jwksCancel() // Cancel JWKS refresh AFTER server is drained
 	slog.Info("server stopped")
+	return result, nil
 }
 
-func loadConfig() config {
+func loadConfig() runConfig {
 	listenAddr := mustGetenv("LISTEN_ADDR")
 	upstreamRaw := mustGetenv("UPSTREAM_URL")
 	resourceURI := mustGetenv("RESOURCE_URI")
@@ -223,7 +310,7 @@ func loadConfig() config {
 		log.Fatalf("MAX_REQUEST_BODY is not a valid integer: %v", err)
 	}
 
-	return config{
+	return runConfig{
 		listenAddr:          listenAddr,
 		upstreamURL:         upstreamURL,
 		resourceURI:         resourceURI,
@@ -276,4 +363,3 @@ func init() {
 	log.SetPrefix("")
 	log.SetOutput(os.Stderr)
 }
-
