@@ -63,7 +63,7 @@ type echoResponse struct {
 
 func readEcho(t *testing.T, resp *http.Response) echoResponse {
 	t.Helper()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var echo echoResponse
 	if err := json.NewDecoder(resp.Body).Decode(&echo); err != nil {
 		t.Fatalf("decode echo: %v", err)
@@ -140,7 +140,7 @@ func TestErrorHandlerReturns502(t *testing.T) {
 			t.Fatal("ResponseWriter does not support Hijack")
 		}
 		conn, _, _ := hj.Hijack()
-		conn.Close()
+		_ = conn.Close()
 	}))
 	defer upstream.Close()
 
@@ -175,7 +175,7 @@ func TestErrorHandlerNoInternalHostnames(t *testing.T) {
 			t.Fatal("ResponseWriter does not support Hijack")
 		}
 		conn, _, _ := hj.Hijack()
-		conn.Close()
+		_ = conn.Close()
 	}))
 	defer upstream.Close()
 
@@ -197,7 +197,7 @@ func TestModifyResponseStripsServerHeader(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
 	resp := doProxyRequest(t, upstream, req)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.ReadAll(resp.Body)
 
 	if h := resp.Header.Get("Server"); h != "" {
@@ -211,7 +211,7 @@ func TestModifyResponseStripsXPoweredBy(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
 	resp := doProxyRequest(t, upstream, req)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.ReadAll(resp.Body)
 
 	if h := resp.Header.Get("X-Powered-By"); h != "" {

@@ -140,10 +140,10 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		// - anything else: reject (likely not an access token)
 		if typ, ok := parsed.Header["typ"].(string); ok {
 			typLower := strings.ToLower(typ)
-			switch {
-			case typLower == "at+jwt":
+			switch typLower {
+			case "at+jwt":
 				// Preferred — no action needed
-			case typLower == "jwt", typLower == "":
+			case "jwt", "":
 				slog.Debug("JWT uses default typ header, not at+jwt", "sub", claims.Subject, "typ", typ)
 			default:
 				slog.Warn("token rejected",
