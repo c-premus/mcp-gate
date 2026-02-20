@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
@@ -18,6 +19,9 @@ import (
 	"github.com/chris/mcp-gate/internal/metadata"
 	"github.com/chris/mcp-gate/internal/proxy"
 )
+
+// version is set at build time via -ldflags.
+var version = "dev"
 
 type config struct {
 	listenAddr          string
@@ -36,13 +40,19 @@ type config struct {
 }
 
 func main() {
-	// Built-in health check for distroless containers (no shell, no curl/wget)
-	if len(os.Args) > 1 && os.Args[1] == "-health" {
-		resp, err := http.Get("http://localhost:8080/healthz")
-		if err != nil || resp.StatusCode != http.StatusOK {
-			os.Exit(1)
+	// Subcommands for distroless containers (no shell, no curl/wget)
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "-health", "healthcheck":
+			resp, err := http.Get("http://localhost:8080/healthz")
+			if err != nil || resp.StatusCode != http.StatusOK {
+				os.Exit(1)
+			}
+			os.Exit(0)
+		case "--version", "-version":
+			fmt.Println("mcp-gate " + version)
+			os.Exit(0)
 		}
-		os.Exit(0)
 	}
 
 	// Configure slog FIRST — keyfunc uses slog.Default() for refresh errors

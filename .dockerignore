@@ -1,0 +1,10 @@
+.git
+.claude
+.forgejo
+memory-bank
+docs
+README.md
+CLAUDE.md
+.gitignore
+.devcontainer
+*.env
