@@ -28,11 +28,9 @@ const (
 type testSetup struct {
 	privKey    *rsa.PrivateKey
 	jwksServer *httptest.Server
-	cancel     context.CancelFunc
 }
 
 func (ts *testSetup) Close() {
-	ts.cancel()
 	ts.jwksServer.Close()
 }
 
@@ -65,12 +63,9 @@ func newTestSetup(t *testing.T) *testSetup {
 		_, _ = w.Write(jwksBytes)
 	}))
 
-	_, cancel := context.WithCancel(context.Background())
-
 	return &testSetup{
 		privKey:    privKey,
 		jwksServer: srv,
-		cancel:     cancel,
 	}
 }
 

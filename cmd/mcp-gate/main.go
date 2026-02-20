@@ -52,7 +52,11 @@ func main() {
 		switch os.Args[1] {
 		case "-health", "healthcheck":
 			resp, err := http.Get("http://localhost:8080/healthz")
-			if err != nil || resp.StatusCode != http.StatusOK {
+			if err != nil {
+				os.Exit(1)
+			}
+			_ = resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
 				os.Exit(1)
 			}
 			os.Exit(0)
@@ -143,8 +147,9 @@ func run(ctx context.Context, cfg runConfig, ready chan<- *runResult) (*runResul
 		ResourceDocumentation:  "https://github.com/grafana/mcp-grafana",
 	}
 
-	// Create JWKS context — cancel stops background refresh
-	jwksCtx, jwksCancel := context.WithCancel(ctx)
+	// Create JWKS context independent of signal context — cancelled explicitly
+	// after server.Shutdown() so in-flight requests can still validate tokens.
+	jwksCtx, jwksCancel := context.WithCancel(context.Background())
 	defer jwksCancel()
 
 	// Initialize auth middleware (blocking JWKS fetch)
@@ -180,18 +185,25 @@ func run(ctx context.Context, cfg runConfig, ready chan<- *runResult) (*runResul
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	// All other routes: body-limit → security headers → auth → proxy
+	// All other routes: body-limit → request log → auth → proxy
 	maxBody := cfg.maxRequestBody
+	authedProxy := authMW.Handler(proxyHandler)
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		authMW.Handler(proxyHandler).ServeHTTP(w, r)
+		slog.Debug("request received", "method", r.Method, "path", r.URL.Path, "remote_addr", r.RemoteAddr)
+		authedProxy.ServeHTTP(w, r)
 	}))
+
+	// Wrap mux with security headers applied to all routes
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		mux.ServeHTTP(w, r)
+	})
 
 	// Create server with timeouts (no WriteTimeout — kills SSE streams)
 	server := &http.Server{
 		Addr:              cfg.listenAddr,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       120 * time.Second,

@@ -427,7 +427,7 @@ func TestRun_BadJWKSURIFails(t *testing.T) {
 	}
 }
 
-func TestRun_XContentTypeOptionsSet(t *testing.T) {
+func TestRun_XContentTypeOptionsOnAllRoutes(t *testing.T) {
 	jwks := newTestJWKS(t)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -438,15 +438,18 @@ func TestRun_XContentTypeOptionsSet(t *testing.T) {
 	result, cancel, _ := startRun(t, cfg)
 	defer cancel()
 
-	// Even a 401 should have the security header.
-	resp, err := http.Get(fmt.Sprintf("http://%s/anything", result.Addr))
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.ReadAll(resp.Body)
+	// nosniff should be on all routes: catch-all, healthz, and metadata.
+	paths := []string{"/anything", "/healthz", "/.well-known/oauth-protected-resource"}
+	for _, path := range paths {
+		resp, err := http.Get(fmt.Sprintf("http://%s%s", result.Addr, path))
+		if err != nil {
+			t.Fatalf("request to %s failed: %v", path, err)
+		}
+		_, _ = io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
 
-	if got := resp.Header.Get("X-Content-Type-Options"); got != "nosniff" {
-		t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
+		if got := resp.Header.Get("X-Content-Type-Options"); got != "nosniff" {
+			t.Errorf("X-Content-Type-Options on %s = %q, want nosniff", path, got)
+		}
 	}
 }

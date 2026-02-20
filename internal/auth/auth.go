@@ -130,7 +130,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 				"error", err,
 				"jti", claims.ID,
 			)
-			m.writeInvalidTokenError(w, err.Error())
+			m.writeInvalidTokenError(w)
 			return
 		}
 
@@ -152,7 +152,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 					"remote_addr", r.RemoteAddr,
 					"jti", claims.ID,
 				)
-				m.writeInvalidTokenError(w, "wrong token type")
+				m.writeInvalidTokenError(w)
 				return
 			}
 		} else {
@@ -187,12 +187,21 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 	})
 }
 
+// sanitizeQuotedString escapes characters for use in RFC 7235 quoted-string values.
+func sanitizeQuotedString(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
+}
+
 // writeNoTokenError writes a 401 response for missing/malformed Bearer token.
 // Per RFC 6750 §3.1, no error code when the request lacks authentication.
 func (m *Middleware) writeNoTokenError(w http.ResponseWriter) {
 	w.Header().Set("WWW-Authenticate", fmt.Sprintf(
 		`Bearer realm="%s", scope="%s", resource_metadata="%s/.well-known/oauth-protected-resource"`,
-		m.cfg.Realm, m.cfg.ScopesSupported, m.cfg.ResourceURI,
+		sanitizeQuotedString(m.cfg.Realm),
+		sanitizeQuotedString(m.cfg.ScopesSupported),
+		sanitizeQuotedString(m.cfg.ResourceURI),
 	))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
@@ -203,16 +212,19 @@ func (m *Middleware) writeNoTokenError(w http.ResponseWriter) {
 }
 
 // writeInvalidTokenError writes a 401 response for an invalid/expired token.
-func (m *Middleware) writeInvalidTokenError(w http.ResponseWriter, desc string) {
+// The desc parameter is logged server-side but a generic message is returned
+// to clients to prevent leaking internal details (key IDs, timing, etc.).
+func (m *Middleware) writeInvalidTokenError(w http.ResponseWriter) {
 	w.Header().Set("WWW-Authenticate", fmt.Sprintf(
-		`Bearer realm="%s", error="invalid_token", error_description="%s", resource_metadata="%s/.well-known/oauth-protected-resource"`,
-		m.cfg.Realm, desc, m.cfg.ResourceURI,
+		`Bearer realm="%s", error="invalid_token", error_description="The access token is invalid or expired", resource_metadata="%s/.well-known/oauth-protected-resource"`,
+		sanitizeQuotedString(m.cfg.Realm),
+		sanitizeQuotedString(m.cfg.ResourceURI),
 	))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"error":             "invalid_token",
-		"error_description": desc,
+		"error_description": "The access token is invalid or expired",
 	})
 }
 
@@ -220,7 +232,9 @@ func (m *Middleware) writeInvalidTokenError(w http.ResponseWriter, desc string) 
 func (m *Middleware) writeInsufficientScopeError(w http.ResponseWriter) {
 	w.Header().Set("WWW-Authenticate", fmt.Sprintf(
 		`Bearer realm="%s", error="insufficient_scope", scope="%s", error_description="Required scope not granted", resource_metadata="%s/.well-known/oauth-protected-resource"`,
-		m.cfg.Realm, strings.Join(m.cfg.RequiredScopes, " "), m.cfg.ResourceURI,
+		sanitizeQuotedString(m.cfg.Realm),
+		sanitizeQuotedString(strings.Join(m.cfg.RequiredScopes, " ")),
+		sanitizeQuotedString(m.cfg.ResourceURI),
 	))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusForbidden)
