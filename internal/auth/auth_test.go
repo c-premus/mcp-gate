@@ -489,3 +489,23 @@ func TestIsReady(t *testing.T) {
 		t.Error("expected IsReady() to return true after successful JWKS fetch")
 	}
 }
+
+func TestEmptyBearerToken(t *testing.T) {
+	ts := newTestSetup(t)
+	defer ts.Close()
+
+	mw := newMiddleware(t, ts, []string{"openid"})
+
+	// "Bearer " with nothing after the space — tests the token=="" branch
+	w := doRequest(t, mw, "Bearer ")
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+
+	var body map[string]string
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body["error"] != "unauthorized" {
+		t.Errorf("error = %q, want unauthorized", body["error"])
+	}
+}

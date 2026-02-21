@@ -18,7 +18,10 @@ import (
 
 	"github.com/chris/mcp-gate/internal/auth"
 	"github.com/chris/mcp-gate/internal/metadata"
+	"github.com/chris/mcp-gate/internal/metrics"
+	otelsetup "github.com/chris/mcp-gate/internal/otel"
 	"github.com/chris/mcp-gate/internal/proxy"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // version is set at build time via -ldflags.
@@ -39,11 +42,16 @@ type runConfig struct {
 	jwksRefreshInterval time.Duration
 	shutdownTimeout     time.Duration
 	maxRequestBody      int64
+	metricsAddr         string
+	otelEndpoint        string
+	otelServiceName     string
+	otelSampleRate      float64
 }
 
 // runResult holds the actual bound address after server startup.
 type runResult struct {
-	Addr string
+	Addr        string
+	MetricsAddr string
 }
 
 func main() {
@@ -81,7 +89,10 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})))
 
 	// Parse and validate configuration
-	cfg := loadConfig()
+	cfg, err := loadConfig()
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
 
 	// Create context that cancels on SIGTERM/SIGINT.
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -137,6 +148,32 @@ func run(ctx context.Context, cfg runConfig, ready chan<- *runResult) (*runResul
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
+	// Record build info metric
+	metrics.Info.WithLabelValues(version).Set(1)
+
+	// Start metrics server on separate port
+	metricsSrv, err := metrics.NewServer(cfg.metricsAddr)
+	if err != nil {
+		return nil, fmt.Errorf("metrics server: %w", err)
+	}
+	metricsErrCh := make(chan error, 1)
+	go func() {
+		if err := metricsSrv.Serve(); err != nil {
+			metricsErrCh <- fmt.Errorf("metrics server: %w", err)
+		}
+	}()
+
+	// Initialize OTEL tracing (no-op if endpoint is empty)
+	otelProvider, err := otelsetup.Setup(ctx, otelsetup.Config{
+		Endpoint:    cfg.otelEndpoint,
+		ServiceName: cfg.otelServiceName,
+		SampleRate:  cfg.otelSampleRate,
+		Version:     version,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("otel setup: %w", err)
+	}
+
 	// Build RFC 9728 metadata from config
 	meta := metadata.ProtectedResourceMetadata{
 		Resource:               cfg.resourceURI,
@@ -168,6 +205,12 @@ func run(ctx context.Context, cfg runConfig, ready chan<- *runResult) (*runResul
 		return nil, fmt.Errorf("auth middleware init: %w", err)
 	}
 
+	// Record loaded JWKS key count
+	keyCount, err := authMW.KeyCount()
+	if err == nil {
+		metrics.JWKSKeysLoaded.Set(float64(keyCount))
+	}
+
 	// Create reverse proxy
 	proxyHandler := proxy.New(cfg.upstreamURL)
 
@@ -195,10 +238,15 @@ func run(ctx context.Context, cfg runConfig, ready chan<- *runResult) (*runResul
 	}))
 
 	// Wrap mux with security headers applied to all routes
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	nosniff := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		mux.ServeHTTP(w, r)
 	})
+
+	// Handler wrapping order (outermost → innermost):
+	// otelhttp (trace spans) → metrics.Middleware (counters/histograms) → nosniff → mux
+	handler := metrics.Middleware(nosniff)
+	handler = otelhttp.NewHandler(handler, "mcp-gate")
 
 	// Create server with timeouts (no WriteTimeout — kills SSE streams)
 	server := &http.Server{
@@ -217,7 +265,8 @@ func run(ctx context.Context, cfg runConfig, ready chan<- *runResult) (*runResul
 	}
 
 	result := &runResult{
-		Addr: ln.Addr().String(),
+		Addr:        ln.Addr().String(),
+		MetricsAddr: metricsSrv.Addr(),
 	}
 
 	// Signal readiness with bound address (for tests).
@@ -234,6 +283,7 @@ func run(ctx context.Context, cfg runConfig, ready chan<- *runResult) (*runResul
 		slog.Info("mcp-gate starting",
 			"version", version,
 			"addr", result.Addr,
+			"metrics_addr", result.MetricsAddr,
 			"upstream", cfg.upstreamURL.String(),
 			"resource_uri", cfg.resourceURI,
 		)
@@ -250,9 +300,14 @@ func run(ctx context.Context, cfg runConfig, ready chan<- *runResult) (*runResul
 		slog.Error("fatal server error", "error", err)
 		cancel()
 		return result, err
+	case err := <-metricsErrCh:
+		slog.Error("fatal metrics server error", "error", err)
+		cancel()
+		return result, err
 	}
 
 	// Graceful shutdown with timeout.
+	// Order: server → OTEL flush → metrics server → JWKS cancel
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.shutdownTimeout)
 	defer shutdownCancel()
 
@@ -260,46 +315,75 @@ func run(ctx context.Context, cfg runConfig, ready chan<- *runResult) (*runResul
 		slog.Warn("shutdown forced — connections closed", "error", err)
 	}
 
+	if err := otelProvider.Shutdown(shutdownCtx); err != nil {
+		slog.Warn("otel shutdown error", "error", err)
+	}
+
+	if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
+		slog.Warn("metrics server shutdown error", "error", err)
+	}
+
 	jwksCancel() // Cancel JWKS refresh AFTER server is drained
 	slog.Info("server stopped")
 	return result, nil
 }
 
-func loadConfig() runConfig {
-	listenAddr := mustGetenv("LISTEN_ADDR")
-	upstreamRaw := mustGetenv("UPSTREAM_URL")
-	resourceURI := mustGetenv("RESOURCE_URI")
-	authServer := mustGetenv("AUTHORIZATION_SERVER")
-	jwksURI := mustGetenv("JWKS_URI")
-	expectedIssuer := mustGetenv("EXPECTED_ISSUER")
-	expectedAudience := mustGetenv("EXPECTED_AUDIENCE")
+func loadConfig() (runConfig, error) {
+	listenAddr, err := requireEnv("LISTEN_ADDR")
+	if err != nil {
+		return runConfig{}, err
+	}
+	upstreamRaw, err := requireEnv("UPSTREAM_URL")
+	if err != nil {
+		return runConfig{}, err
+	}
+	resourceURI, err := requireEnv("RESOURCE_URI")
+	if err != nil {
+		return runConfig{}, err
+	}
+	authServer, err := requireEnv("AUTHORIZATION_SERVER")
+	if err != nil {
+		return runConfig{}, err
+	}
+	jwksURI, err := requireEnv("JWKS_URI")
+	if err != nil {
+		return runConfig{}, err
+	}
+	expectedIssuer, err := requireEnv("EXPECTED_ISSUER")
+	if err != nil {
+		return runConfig{}, err
+	}
+	expectedAudience, err := requireEnv("EXPECTED_AUDIENCE")
+	if err != nil {
+		return runConfig{}, err
+	}
 
 	// Validate JWKS_URI scheme — MUST be https (MITM protection)
 	jwksURL, err := url.ParseRequestURI(jwksURI)
 	if err != nil {
-		log.Fatalf("JWKS_URI is not a valid URL: %v", err)
+		return runConfig{}, fmt.Errorf("JWKS_URI is not a valid URL: %w", err)
 	}
 	if jwksURL.Scheme != "https" {
-		log.Fatalf("JWKS_URI must use https:// scheme, got %s", jwksURL.Scheme)
+		return runConfig{}, fmt.Errorf("JWKS_URI must use https:// scheme, got %s", jwksURL.Scheme)
 	}
 
 	// Validate UPSTREAM_URL scheme — http or https only (SSRF prevention)
 	upstreamURL, err := url.ParseRequestURI(upstreamRaw)
 	if err != nil {
-		log.Fatalf("UPSTREAM_URL is not a valid URL: %v", err)
+		return runConfig{}, fmt.Errorf("UPSTREAM_URL is not a valid URL: %w", err)
 	}
 	if upstreamURL.Scheme != "http" && upstreamURL.Scheme != "https" {
-		log.Fatalf("UPSTREAM_URL must use http:// or https:// scheme, got %s", upstreamURL.Scheme)
+		return runConfig{}, fmt.Errorf("UPSTREAM_URL must use http:// or https:// scheme, got %s", upstreamURL.Scheme)
 	}
 
 	// Validate RESOURCE_URI
 	if _, err := url.ParseRequestURI(resourceURI); err != nil {
-		log.Fatalf("RESOURCE_URI is not a valid URL: %v", err)
+		return runConfig{}, fmt.Errorf("RESOURCE_URI is not a valid URL: %w", err)
 	}
 
 	// Validate AUTHORIZATION_SERVER
 	if _, err := url.ParseRequestURI(authServer); err != nil {
-		log.Fatalf("AUTHORIZATION_SERVER is not a valid URL: %v", err)
+		return runConfig{}, fmt.Errorf("AUTHORIZATION_SERVER is not a valid URL: %w", err)
 	}
 
 	// Optional config with defaults
@@ -309,17 +393,32 @@ func loadConfig() runConfig {
 
 	jwksRefreshInterval, err := time.ParseDuration(getenvDefault("JWKS_REFRESH_INTERVAL", "1h"))
 	if err != nil {
-		log.Fatalf("JWKS_REFRESH_INTERVAL is not a valid duration: %v", err)
+		return runConfig{}, fmt.Errorf("JWKS_REFRESH_INTERVAL is not a valid duration: %w", err)
 	}
 
 	shutdownTimeout, err := time.ParseDuration(getenvDefault("SHUTDOWN_TIMEOUT", "30s"))
 	if err != nil {
-		log.Fatalf("SHUTDOWN_TIMEOUT is not a valid duration: %v", err)
+		return runConfig{}, fmt.Errorf("SHUTDOWN_TIMEOUT is not a valid duration: %w", err)
 	}
 
 	maxRequestBody, err := strconv.ParseInt(getenvDefault("MAX_REQUEST_BODY", "10485760"), 10, 64)
 	if err != nil {
-		log.Fatalf("MAX_REQUEST_BODY is not a valid integer: %v", err)
+		return runConfig{}, fmt.Errorf("MAX_REQUEST_BODY is not a valid integer: %w", err)
+	}
+
+	metricsAddr := getenvDefault("METRICS_ADDR", ":9090")
+	otelEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") // intentionally optional
+	otelServiceName := getenvDefault("OTEL_SERVICE_NAME", "mcp-gate")
+
+	otelSampleRate := 1.0
+	if raw := os.Getenv("OTEL_TRACE_SAMPLE_RATE"); raw != "" {
+		otelSampleRate, err = strconv.ParseFloat(raw, 64)
+		if err != nil {
+			return runConfig{}, fmt.Errorf("OTEL_TRACE_SAMPLE_RATE is not a valid float: %w", err)
+		}
+		if otelSampleRate < 0.0 || otelSampleRate > 1.0 {
+			return runConfig{}, fmt.Errorf("OTEL_TRACE_SAMPLE_RATE must be between 0.0 and 1.0, got %f", otelSampleRate)
+		}
 	}
 
 	return runConfig{
@@ -336,15 +435,19 @@ func loadConfig() runConfig {
 		jwksRefreshInterval: jwksRefreshInterval,
 		shutdownTimeout:     shutdownTimeout,
 		maxRequestBody:      maxRequestBody,
-	}
+		metricsAddr:         metricsAddr,
+		otelEndpoint:        otelEndpoint,
+		otelServiceName:     otelServiceName,
+		otelSampleRate:      otelSampleRate,
+	}, nil
 }
 
-func mustGetenv(key string) string {
+func requireEnv(key string) (string, error) {
 	val := os.Getenv(key)
 	if val == "" {
-		log.Fatalf("required environment variable %s is not set", key)
+		return "", fmt.Errorf("required environment variable %s is not set", key)
 	}
-	return val
+	return val, nil
 }
 
 func getenvDefault(key, fallback string) string {

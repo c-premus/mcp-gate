@@ -13,7 +13,10 @@ import (
 
 	"github.com/MicahParks/jwkset"
 	"github.com/MicahParks/keyfunc/v3"
+	"github.com/chris/mcp-gate/internal/metrics"
 	"github.com/golang-jwt/jwt/v5"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/time/rate"
 )
 
@@ -104,18 +107,33 @@ func (m *Middleware) IsReady() bool {
 	return err == nil && len(keys) > 0
 }
 
+// KeyCount returns the number of keys currently loaded in the JWKS store.
+func (m *Middleware) KeyCount() (int, error) {
+	keys, err := m.storage.KeyReadAll(context.Background())
+	if err != nil {
+		return 0, err
+	}
+	return len(keys), nil
+}
+
 // Handler returns an HTTP middleware that validates JWT Bearer tokens.
 func (m *Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		span := trace.SpanFromContext(r.Context())
+
 		// Extract Bearer token
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
+			metrics.AuthValidationsTotal.WithLabelValues("no_token").Inc()
+			span.SetAttributes(attribute.String("auth.outcome", "no_token"))
 			m.writeNoTokenError(w)
 			return
 		}
 
 		token, found := strings.CutPrefix(authHeader, "Bearer ")
 		if !found || token == "" {
+			metrics.AuthValidationsTotal.WithLabelValues("no_token").Inc()
+			span.SetAttributes(attribute.String("auth.outcome", "no_token"))
 			m.writeNoTokenError(w)
 			return
 		}
@@ -130,6 +148,8 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 				"error", err,
 				"jti", claims.ID,
 			)
+			metrics.AuthValidationsTotal.WithLabelValues("invalid_token").Inc()
+			span.SetAttributes(attribute.String("auth.outcome", "invalid_token"))
 			m.writeInvalidTokenError(w)
 			return
 		}
@@ -152,6 +172,8 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 					"remote_addr", r.RemoteAddr,
 					"jti", claims.ID,
 				)
+				metrics.AuthValidationsTotal.WithLabelValues("wrong_typ").Inc()
+				span.SetAttributes(attribute.String("auth.outcome", "wrong_typ"))
 				m.writeInvalidTokenError(w)
 				return
 			}
@@ -170,10 +192,19 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 					"remote_addr", r.RemoteAddr,
 					"jti", claims.ID,
 				)
+				metrics.AuthValidationsTotal.WithLabelValues("insufficient_scope").Inc()
+				span.SetAttributes(attribute.String("auth.outcome", "insufficient_scope"))
 				m.writeInsufficientScopeError(w)
 				return
 			}
 		}
+
+		metrics.AuthValidationsTotal.WithLabelValues("valid").Inc()
+		span.SetAttributes(
+			attribute.String("auth.outcome", "valid"),
+			attribute.String("auth.sub", claims.Subject),
+			attribute.String("auth.jti", claims.ID),
+		)
 
 		slog.Debug("token validated",
 			"sub", claims.Subject,

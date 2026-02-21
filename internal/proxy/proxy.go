@@ -2,12 +2,19 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
+	"time"
+
+	"github.com/chris/mcp-gate/internal/metrics"
 )
+
+type contextKey struct{}
 
 // New creates a reverse proxy targeting the given upstream URL.
 // It uses the Rewrite API (not Director) for safer hop-by-hop handling,
@@ -24,6 +31,9 @@ func New(upstreamURL *url.URL) *httputil.ReverseProxy {
 			q := r.Out.URL.Query()
 			q.Del("access_token")
 			r.Out.URL.RawQuery = q.Encode()
+
+			// Store start time for duration tracking
+			r.Out = r.Out.WithContext(context.WithValue(r.Out.Context(), contextKey{}, time.Now()))
 		},
 		FlushInterval: -1, // Flush immediately for SSE/streamable-http
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -32,6 +42,12 @@ func New(upstreamURL *url.URL) *httputil.ReverseProxy {
 				"path", r.URL.Path,
 				"error", err,
 			)
+
+			if start, ok := r.Context().Value(contextKey{}).(time.Time); ok {
+				metrics.ProxyRequestDuration.Observe(time.Since(start).Seconds())
+			}
+			metrics.ProxyRequestsTotal.WithLabelValues("502").Inc()
+
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadGateway)
 			_ = json.NewEncoder(w).Encode(map[string]string{
@@ -42,6 +58,12 @@ func New(upstreamURL *url.URL) *httputil.ReverseProxy {
 		ModifyResponse: func(resp *http.Response) error {
 			resp.Header.Del("Server")
 			resp.Header.Del("X-Powered-By")
+
+			if start, ok := resp.Request.Context().Value(contextKey{}).(time.Time); ok {
+				metrics.ProxyRequestDuration.Observe(time.Since(start).Seconds())
+			}
+			metrics.ProxyRequestsTotal.WithLabelValues(strconv.Itoa(resp.StatusCode)).Inc()
+
 			return nil
 		},
 	}

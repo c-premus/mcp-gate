@@ -12,6 +12,6 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
 FROM gcr.io/distroless/static-debian12
 COPY --from=builder /mcp-gate /mcp-gate
 USER 65534:65534
-EXPOSE 8080
+EXPOSE 8080 9090
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD ["/mcp-gate", "healthcheck"]
 ENTRYPOINT ["/mcp-gate"]

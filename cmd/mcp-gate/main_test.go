@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // --- Helper function tests ---
@@ -451,5 +453,259 @@ func TestRun_XContentTypeOptionsOnAllRoutes(t *testing.T) {
 		if got := resp.Header.Get("X-Content-Type-Options"); got != "nosniff" {
 			t.Errorf("X-Content-Type-Options on %s = %q, want nosniff", path, got)
 		}
+	}
+}
+
+// --- JWT signing helper for integration tests ---
+
+func signTestToken(t *testing.T, privKey *rsa.PrivateKey, kid string, claims jwt.Claims) string {
+	t.Helper()
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	token.Header["kid"] = kid
+	token.Header["typ"] = "at+jwt"
+	signed, err := token.SignedString(privKey)
+	if err != nil {
+		t.Fatalf("sign token: %v", err)
+	}
+	return signed
+}
+
+// --- loadConfig tests ---
+
+func setRequiredEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("LISTEN_ADDR", "0.0.0.0:8080")
+	t.Setenv("UPSTREAM_URL", "http://localhost:8000")
+	t.Setenv("RESOURCE_URI", "https://grafana-mcp.example.com")
+	t.Setenv("AUTHORIZATION_SERVER", "https://auth.example.com/app/")
+	t.Setenv("JWKS_URI", "https://auth.example.com/jwks/")
+	t.Setenv("EXPECTED_ISSUER", "https://auth.example.com/app/")
+	t.Setenv("EXPECTED_AUDIENCE", "test-client-id")
+}
+
+func TestLoadConfig_Defaults(t *testing.T) {
+	setRequiredEnv(t)
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.listenAddr != "0.0.0.0:8080" {
+		t.Errorf("listenAddr = %q, want 0.0.0.0:8080", cfg.listenAddr)
+	}
+	if cfg.upstreamURL.String() != "http://localhost:8000" {
+		t.Errorf("upstreamURL = %q", cfg.upstreamURL.String())
+	}
+	if cfg.resourceURI != "https://grafana-mcp.example.com" {
+		t.Errorf("resourceURI = %q", cfg.resourceURI)
+	}
+	if cfg.authServer != "https://auth.example.com/app/" {
+		t.Errorf("authServer = %q", cfg.authServer)
+	}
+	if cfg.jwksURI != "https://auth.example.com/jwks/" {
+		t.Errorf("jwksURI = %q", cfg.jwksURI)
+	}
+	if cfg.expectedIssuer != "https://auth.example.com/app/" {
+		t.Errorf("expectedIssuer = %q", cfg.expectedIssuer)
+	}
+	if cfg.expectedAudience != "test-client-id" {
+		t.Errorf("expectedAudience = %q", cfg.expectedAudience)
+	}
+	// Defaults
+	if len(cfg.requiredScopes) != 1 || cfg.requiredScopes[0] != "openid" {
+		t.Errorf("requiredScopes = %v, want [openid]", cfg.requiredScopes)
+	}
+	if len(cfg.scopesSupported) != 2 || cfg.scopesSupported[0] != "openid" || cfg.scopesSupported[1] != "profile" {
+		t.Errorf("scopesSupported = %v, want [openid profile]", cfg.scopesSupported)
+	}
+	if cfg.resourceName != "Grafana MCP Server" {
+		t.Errorf("resourceName = %q", cfg.resourceName)
+	}
+	if cfg.jwksRefreshInterval != time.Hour {
+		t.Errorf("jwksRefreshInterval = %v, want 1h", cfg.jwksRefreshInterval)
+	}
+	if cfg.shutdownTimeout != 30*time.Second {
+		t.Errorf("shutdownTimeout = %v, want 30s", cfg.shutdownTimeout)
+	}
+	if cfg.maxRequestBody != 10485760 {
+		t.Errorf("maxRequestBody = %d, want 10485760", cfg.maxRequestBody)
+	}
+}
+
+func TestLoadConfig_Optionals(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("REQUIRED_SCOPES", "openid,email")
+	t.Setenv("SCOPES_SUPPORTED", "openid,email,profile")
+	t.Setenv("RESOURCE_NAME", "Custom MCP")
+	t.Setenv("JWKS_REFRESH_INTERVAL", "30m")
+	t.Setenv("SHUTDOWN_TIMEOUT", "10s")
+	t.Setenv("MAX_REQUEST_BODY", "5242880")
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(cfg.requiredScopes) != 2 || cfg.requiredScopes[1] != "email" {
+		t.Errorf("requiredScopes = %v", cfg.requiredScopes)
+	}
+	if len(cfg.scopesSupported) != 3 {
+		t.Errorf("scopesSupported = %v", cfg.scopesSupported)
+	}
+	if cfg.resourceName != "Custom MCP" {
+		t.Errorf("resourceName = %q", cfg.resourceName)
+	}
+	if cfg.jwksRefreshInterval != 30*time.Minute {
+		t.Errorf("jwksRefreshInterval = %v, want 30m", cfg.jwksRefreshInterval)
+	}
+	if cfg.shutdownTimeout != 10*time.Second {
+		t.Errorf("shutdownTimeout = %v, want 10s", cfg.shutdownTimeout)
+	}
+	if cfg.maxRequestBody != 5242880 {
+		t.Errorf("maxRequestBody = %d, want 5242880", cfg.maxRequestBody)
+	}
+}
+
+func TestLoadConfig_Errors(t *testing.T) {
+	tests := []struct {
+		name    string
+		envMod  func(t *testing.T)
+		wantErr string
+	}{
+		// Missing required vars
+		{"missing_LISTEN_ADDR", func(t *testing.T) { t.Setenv("LISTEN_ADDR", "") }, "LISTEN_ADDR"},
+		{"missing_UPSTREAM_URL", func(t *testing.T) { t.Setenv("UPSTREAM_URL", "") }, "UPSTREAM_URL"},
+		{"missing_RESOURCE_URI", func(t *testing.T) { t.Setenv("RESOURCE_URI", "") }, "RESOURCE_URI"},
+		{"missing_AUTHORIZATION_SERVER", func(t *testing.T) { t.Setenv("AUTHORIZATION_SERVER", "") }, "AUTHORIZATION_SERVER"},
+		{"missing_JWKS_URI", func(t *testing.T) { t.Setenv("JWKS_URI", "") }, "JWKS_URI"},
+		{"missing_EXPECTED_ISSUER", func(t *testing.T) { t.Setenv("EXPECTED_ISSUER", "") }, "EXPECTED_ISSUER"},
+		{"missing_EXPECTED_AUDIENCE", func(t *testing.T) { t.Setenv("EXPECTED_AUDIENCE", "") }, "EXPECTED_AUDIENCE"},
+		// URL validation
+		{"JWKS_URI_not_https", func(t *testing.T) { t.Setenv("JWKS_URI", "http://auth.example.com/jwks/") }, "https"},
+		{"JWKS_URI_invalid", func(t *testing.T) { t.Setenv("JWKS_URI", "://bad") }, "JWKS_URI is not a valid URL"},
+		{"UPSTREAM_URL_bad_scheme", func(t *testing.T) { t.Setenv("UPSTREAM_URL", "ftp://localhost:8000") }, "http:// or https://"},
+		{"UPSTREAM_URL_invalid", func(t *testing.T) { t.Setenv("UPSTREAM_URL", "://bad") }, "UPSTREAM_URL is not a valid URL"},
+		{"RESOURCE_URI_invalid", func(t *testing.T) { t.Setenv("RESOURCE_URI", "://bad") }, "RESOURCE_URI is not a valid URL"},
+		{"AUTHORIZATION_SERVER_invalid", func(t *testing.T) { t.Setenv("AUTHORIZATION_SERVER", "://bad") }, "AUTHORIZATION_SERVER is not a valid URL"},
+		// Bad optional values
+		{"bad_JWKS_REFRESH_INTERVAL", func(t *testing.T) { t.Setenv("JWKS_REFRESH_INTERVAL", "not-a-duration") }, "JWKS_REFRESH_INTERVAL"},
+		{"bad_SHUTDOWN_TIMEOUT", func(t *testing.T) { t.Setenv("SHUTDOWN_TIMEOUT", "not-a-duration") }, "SHUTDOWN_TIMEOUT"},
+		{"bad_MAX_REQUEST_BODY", func(t *testing.T) { t.Setenv("MAX_REQUEST_BODY", "not-a-number") }, "MAX_REQUEST_BODY"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setRequiredEnv(t)
+			tt.envMod(t)
+
+			_, err := loadConfig()
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error = %q, want to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_UpstreamHTTPS(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("UPSTREAM_URL", "https://localhost:8000")
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.upstreamURL.Scheme != "https" {
+		t.Errorf("upstream scheme = %q, want https", cfg.upstreamURL.Scheme)
+	}
+}
+
+// --- Additional run() tests ---
+
+func TestRun_ListenFailure(t *testing.T) {
+	// Occupy a port
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+
+	jwks := newTestJWKS(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
+	cfg.listenAddr = ln.Addr().String()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	_, err = run(ctx, cfg, nil)
+	if err == nil {
+		t.Fatal("expected error for occupied port")
+	}
+	if !strings.Contains(err.Error(), "listen") {
+		t.Errorf("error = %q, want to contain 'listen'", err)
+	}
+}
+
+func TestRun_AuthenticatedRequestProxied(t *testing.T) {
+	jwks := newTestJWKS(t)
+
+	var gotPath string
+	var gotAuth string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("upstream-ok"))
+	}))
+	defer upstream.Close()
+
+	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
+	result, cancel, _ := startRun(t, cfg)
+	defer cancel()
+
+	// Create valid JWT matching test config
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"iss":   cfg.expectedIssuer,
+		"aud":   cfg.expectedAudience,
+		"exp":   now.Add(time.Hour).Unix(),
+		"iat":   now.Unix(),
+		"nbf":   now.Add(-time.Minute).Unix(),
+		"sub":   "test-user",
+		"jti":   "test-jti",
+		"scope": "openid profile",
+	}
+	token := signTestToken(t, jwks.privKey, "test-key-1", claims)
+
+	req, _ := http.NewRequest(http.MethodPost, fmt.Sprintf("http://%s/mcp/v1", result.Addr), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200, body: %s", resp.StatusCode, body)
+	}
+	if gotPath != "/mcp/v1" {
+		t.Errorf("upstream path = %q, want /mcp/v1", gotPath)
+	}
+	if gotAuth != "" {
+		t.Error("Authorization header was not stripped before proxying")
+	}
+	if string(body) != "upstream-ok" {
+		t.Errorf("body = %q, want upstream-ok", body)
 	}
 }

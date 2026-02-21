@@ -31,6 +31,10 @@ Thumbs.db
 # Claude Code local settings
 .claude/settings.local.json
 
+# Grafana dashboard project
+grafana/node_modules/
+grafana/dist/
+
 # Environment (secrets)
 .env
 *.env.local
