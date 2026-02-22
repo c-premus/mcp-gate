@@ -59,7 +59,15 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "-health", "healthcheck":
-			resp, err := http.Get("http://localhost:8080/healthz")
+			addr := os.Getenv("LISTEN_ADDR")
+			if addr == "" {
+				addr = "0.0.0.0:8080"
+			}
+			_, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				os.Exit(1)
+			}
+			resp, err := http.Get("http://localhost:" + port + "/healthz")
 			if err != nil {
 				os.Exit(1)
 			}
