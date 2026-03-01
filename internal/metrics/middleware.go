@@ -2,9 +2,12 @@ package metrics
 
 import (
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/chris/mcp-gate/internal/realip"
 )
 
 // RouteClassifier maps a request path to a bounded route label for metrics.
@@ -57,7 +60,9 @@ func (r *responseRecorder) Unwrap() http.ResponseWriter {
 }
 
 // Middleware records HTTP request count and duration metrics.
-func Middleware(next http.Handler) http.Handler {
+// trustedProxies controls which peers are trusted for X-Forwarded-For /
+// X-Real-IP header extraction. Pass nil to always use RemoteAddr.
+func Middleware(next http.Handler, trustedProxies []*net.IPNet) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		route := RouteClassifier(r)
@@ -80,7 +85,7 @@ func Middleware(next http.Handler) http.Handler {
 			"path", r.URL.Path,
 			"status", rec.statusCode,
 			"duration_ms", int(duration*1000),
-			"remote_addr", r.RemoteAddr,
+			"client_ip", realip.Extract(r, trustedProxies),
 			"user_agent", r.Header.Get("User-Agent"),
 		)
 	})

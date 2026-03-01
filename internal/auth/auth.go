@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"slices"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/MicahParks/jwkset"
 	"github.com/MicahParks/keyfunc/v3"
 	"github.com/chris/mcp-gate/internal/metrics"
+	"github.com/chris/mcp-gate/internal/realip"
 	"github.com/golang-jwt/jwt/v5"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -34,9 +36,10 @@ type Config struct {
 	ExpectedIssuer   string
 	ExpectedAudience string
 	RequiredScopes   []string
-	ResourceURI      string // Public URL for WWW-Authenticate resource_metadata
-	Realm            string // e.g. "grafana-mcp"
-	ScopesSupported  string // Space-separated scopes for WWW-Authenticate
+	ResourceURI      string       // Public URL for WWW-Authenticate resource_metadata
+	Realm            string       // e.g. "grafana-mcp"
+	ScopesSupported  string       // Space-separated scopes for WWW-Authenticate
+	TrustedProxies   []*net.IPNet // CIDRs trusted for X-Forwarded-For / X-Real-IP
 }
 
 // Middleware validates JWT Bearer tokens against a JWKS endpoint.
@@ -120,6 +123,7 @@ func (m *Middleware) KeyCount() (int, error) {
 func (m *Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		span := trace.SpanFromContext(r.Context())
+		clientIP := realip.Extract(r, m.cfg.TrustedProxies)
 
 		// Extract Bearer token
 		authHeader := r.Header.Get("Authorization")
@@ -144,7 +148,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		if err != nil {
 			slog.Warn("token rejected",
 				"reason", "validation_failed",
-				"remote_addr", r.RemoteAddr,
+				"client_ip", clientIP,
 				"error", err,
 				"jti", claims.ID,
 			)
@@ -169,7 +173,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 				slog.Warn("token rejected",
 					"reason", "wrong_typ",
 					"typ", typ,
-					"remote_addr", r.RemoteAddr,
+					"client_ip", clientIP,
 					"jti", claims.ID,
 				)
 				metrics.AuthValidationsTotal.WithLabelValues("wrong_typ").Inc()
@@ -189,7 +193,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 					"reason", "insufficient_scope",
 					"required", required,
 					"token_scopes", claims.Scope,
-					"remote_addr", r.RemoteAddr,
+					"client_ip", clientIP,
 					"jti", claims.ID,
 				)
 				metrics.AuthValidationsTotal.WithLabelValues("insufficient_scope").Inc()
@@ -211,7 +215,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 			"iss", claims.Issuer,
 			"scopes", claims.Scope,
 			"jti", claims.ID,
-			"remote_addr", r.RemoteAddr,
+			"client_ip", clientIP,
 		)
 
 		next.ServeHTTP(w, r)

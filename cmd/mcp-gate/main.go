@@ -21,6 +21,7 @@ import (
 	"github.com/chris/mcp-gate/internal/metrics"
 	otelsetup "github.com/chris/mcp-gate/internal/otel"
 	"github.com/chris/mcp-gate/internal/proxy"
+	"github.com/chris/mcp-gate/internal/realip"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
@@ -42,6 +43,7 @@ type runConfig struct {
 	jwksRefreshInterval time.Duration
 	shutdownTimeout     time.Duration
 	maxRequestBody      int64
+	trustedProxies      []*net.IPNet
 	metricsAddr         string
 	otelEndpoint        string
 	otelServiceName     string
@@ -208,6 +210,7 @@ func run(ctx context.Context, cfg runConfig, ready chan<- *runResult) (*runResul
 		ResourceURI:      cfg.resourceURI,
 		Realm:            "grafana-mcp",
 		ScopesSupported:  strings.Join(cfg.scopesSupported, " "),
+		TrustedProxies:   cfg.trustedProxies,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("auth middleware init: %w", err)
@@ -252,7 +255,7 @@ func run(ctx context.Context, cfg runConfig, ready chan<- *runResult) (*runResul
 
 	// Handler wrapping order (outermost → innermost):
 	// otelhttp (trace spans) → metrics.Middleware (counters/histograms) → nosniff → mux
-	handler := metrics.Middleware(nosniff)
+	handler := metrics.Middleware(nosniff, cfg.trustedProxies)
 	handler = otelhttp.NewHandler(handler, "mcp-gate")
 
 	// Create server with timeouts (no WriteTimeout — kills SSE streams)
@@ -413,6 +416,11 @@ func loadConfig() (runConfig, error) {
 		return runConfig{}, fmt.Errorf("MAX_REQUEST_BODY is not a valid integer: %w", err)
 	}
 
+	trustedProxies, err := realip.ParseCIDRs(splitCSV(os.Getenv("TRUSTED_PROXIES")))
+	if err != nil {
+		return runConfig{}, fmt.Errorf("TRUSTED_PROXIES: %w", err)
+	}
+
 	metricsAddr := getenvDefault("METRICS_ADDR", ":9090")
 	otelEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") // intentionally optional
 	otelServiceName := getenvDefault("OTEL_SERVICE_NAME", "mcp-gate")
@@ -442,6 +450,7 @@ func loadConfig() (runConfig, error) {
 		jwksRefreshInterval: jwksRefreshInterval,
 		shutdownTimeout:     shutdownTimeout,
 		maxRequestBody:      maxRequestBody,
+		trustedProxies:      trustedProxies,
 		metricsAddr:         metricsAddr,
 		otelEndpoint:        otelEndpoint,
 		otelServiceName:     otelServiceName,

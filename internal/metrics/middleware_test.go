@@ -76,7 +76,7 @@ func TestResponseRecorder_Unwrap(t *testing.T) {
 func TestMiddleware_RecordsMetrics(t *testing.T) {
 	handler := Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-	}))
+	}), nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	w := httptest.NewRecorder()
