@@ -2,7 +2,21 @@ import { PanelBuilder as StatPanel } from "@grafana/grafana-foundation-sdk/stat"
 import { PanelBuilder as TimeseriesPanel } from "@grafana/grafana-foundation-sdk/timeseries";
 import { PanelBuilder as PiechartPanel } from "@grafana/grafana-foundation-sdk/piechart";
 import { DataqueryBuilder as PrometheusQuery } from "@grafana/grafana-foundation-sdk/prometheus";
-import { RowBuilder } from "@grafana/grafana-foundation-sdk/dashboard";
+import {
+  RowBuilder,
+  ThresholdsConfigBuilder,
+  FieldColorBuilder,
+} from "@grafana/grafana-foundation-sdk/dashboard";
+import {
+  ThresholdsMode,
+  FieldColorModeId,
+} from "@grafana/grafana-foundation-sdk/dashboard";
+import {
+  BigValueColorMode,
+  VizTooltipOptionsBuilder,
+  TooltipDisplayMode,
+  SortOrder,
+} from "@grafana/grafana-foundation-sdk/common";
 import { PROMETHEUS, JOB_FILTER } from "./constants";
 
 function validAuthStat(): StatPanel {
@@ -11,8 +25,11 @@ function validAuthStat(): StatPanel {
     .description("Successful JWT validations per second")
     .datasource(PROMETHEUS)
     .unit("reqps")
-    .span(3)
-    .height(4)
+    .noValue("0")
+    .colorMode(BigValueColorMode.Value)
+    .colorScheme(new FieldColorBuilder().mode(FieldColorModeId.Fixed).fixedColor("green"))
+    .span(6)
+    .height(5)
     .withTarget(
       new PrometheusQuery()
         .expr(
@@ -29,8 +46,19 @@ function noTokenStat(): StatPanel {
     .description("Requests without Bearer token per second")
     .datasource(PROMETHEUS)
     .unit("reqps")
-    .span(3)
-    .height(4)
+    .noValue("0")
+    .colorMode(BigValueColorMode.Value)
+    .thresholds(
+      new ThresholdsConfigBuilder()
+        .mode(ThresholdsMode.Absolute)
+        .steps([
+          { value: null as unknown as number, color: "green" },
+          { value: 0.1, color: "yellow" },
+          { value: 1, color: "red" },
+        ])
+    )
+    .span(6)
+    .height(5)
     .withTarget(
       new PrometheusQuery()
         .expr(
@@ -47,8 +75,19 @@ function invalidTokenStat(): StatPanel {
     .description("Invalid/expired token rejections per second")
     .datasource(PROMETHEUS)
     .unit("reqps")
-    .span(3)
-    .height(4)
+    .noValue("0")
+    .colorMode(BigValueColorMode.Value)
+    .thresholds(
+      new ThresholdsConfigBuilder()
+        .mode(ThresholdsMode.Absolute)
+        .steps([
+          { value: null as unknown as number, color: "green" },
+          { value: 0.1, color: "yellow" },
+          { value: 1, color: "red" },
+        ])
+    )
+    .span(6)
+    .height(5)
     .withTarget(
       new PrometheusQuery()
         .expr(
@@ -65,8 +104,19 @@ function insufficientScopeStat(): StatPanel {
     .description("Scope-check failures per second")
     .datasource(PROMETHEUS)
     .unit("reqps")
-    .span(3)
-    .height(4)
+    .noValue("0")
+    .colorMode(BigValueColorMode.Value)
+    .thresholds(
+      new ThresholdsConfigBuilder()
+        .mode(ThresholdsMode.Absolute)
+        .steps([
+          { value: null as unknown as number, color: "green" },
+          { value: 0.1, color: "yellow" },
+          { value: 1, color: "red" },
+        ])
+    )
+    .span(6)
+    .height(5)
     .withTarget(
       new PrometheusQuery()
         .expr(
@@ -83,7 +133,12 @@ function authFailureTimeseries(): TimeseriesPanel {
     .description("Authentication failures over time by outcome")
     .datasource(PROMETHEUS)
     .unit("reqps")
-    .span(6)
+    .tooltip(
+      new VizTooltipOptionsBuilder()
+        .mode(TooltipDisplayMode.Multi)
+        .sort(SortOrder.Descending)
+    )
+    .span(12)
     .height(8)
     .withTarget(
       new PrometheusQuery()
@@ -98,9 +153,9 @@ function authFailureTimeseries(): TimeseriesPanel {
 function authOutcomePiechart(): PiechartPanel {
   return new PiechartPanel()
     .title("Auth Outcomes")
-    .description("Distribution of authentication outcomes")
+    .description("Distribution of authentication outcomes over the selected time range")
     .datasource(PROMETHEUS)
-    .span(6)
+    .span(12)
     .height(8)
     .withTarget(
       new PrometheusQuery()
@@ -115,6 +170,7 @@ function authOutcomePiechart(): PiechartPanel {
 
 export function authRow(): RowBuilder {
   return new RowBuilder("Authentication")
+    .collapsed(true)
     .withPanel(validAuthStat())
     .withPanel(noTokenStat())
     .withPanel(invalidTokenStat())

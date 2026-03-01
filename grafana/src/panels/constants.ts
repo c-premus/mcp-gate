@@ -17,3 +17,4 @@ export const LOKI: dashboard.DataSourceRef = {
 
 export const JOB_FILTER = 'job="mcp-gate"';
 export const SERVICE_NAME = "mcp-gate";
+export const HEALTHZ_FILTER = 'path!="/healthz"';

@@ -1,7 +1,7 @@
 {
   "timezone": "browser",
   "editable": true,
-  "graphTooltip": 0,
+  "graphTooltip": 1,
   "fiscalYearStartMonth": 0,
   "schemaVersion": 41,
   "templating": {
@@ -64,172 +64,9 @@
   "panels": [
     {
       "type": "row",
-      "collapsed": true,
+      "collapsed": false,
       "id": 0,
-      "panels": [
-        {
-          "type": "stat",
-          "transparent": false,
-          "repeatDirection": "h",
-          "title": "Request Rate",
-          "description": "Requests per second",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "reqps"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 4,
-            "w": 4,
-            "x": 0,
-            "y": 1
-          },
-          "targets": [
-            {
-              "expr": "sum(rate(mcpgate_http_requests_total{job=\"mcp-gate\"}[$__rate_interval]))",
-              "refId": "A",
-              "legendFormat": "req/s"
-            }
-          ]
-        },
-        {
-          "type": "stat",
-          "transparent": false,
-          "repeatDirection": "h",
-          "title": "Error Rate",
-          "description": "5xx responses as percentage of total",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "percentunit",
-              "decimals": 2
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 4,
-            "w": 4,
-            "x": 4,
-            "y": 1
-          },
-          "targets": [
-            {
-              "expr": "sum(rate(mcpgate_http_requests_total{job=\"mcp-gate\",status_code=~\"5..\"}[$__rate_interval])) / sum(rate(mcpgate_http_requests_total{job=\"mcp-gate\"}[$__rate_interval]))",
-              "refId": "A",
-              "legendFormat": "error %"
-            }
-          ]
-        },
-        {
-          "type": "stat",
-          "transparent": false,
-          "repeatDirection": "h",
-          "title": "P95 Latency",
-          "description": "95th percentile request latency",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "s",
-              "decimals": 3
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 4,
-            "w": 4,
-            "x": 8,
-            "y": 1
-          },
-          "targets": [
-            {
-              "expr": "histogram_quantile(0.95, sum(rate(mcpgate_http_request_duration_seconds_bucket{job=\"mcp-gate\"}[$__rate_interval])) by (le))",
-              "refId": "A",
-              "legendFormat": "p95"
-            }
-          ]
-        },
-        {
-          "type": "timeseries",
-          "transparent": false,
-          "repeatDirection": "h",
-          "title": "Request Rate by Status",
-          "description": "HTTP request rate broken down by status code",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "reqps"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 12,
-            "y": 1
-          },
-          "targets": [
-            {
-              "expr": "sum by (status_code) (rate(mcpgate_http_requests_total{job=\"mcp-gate\"}[$__rate_interval]))",
-              "refId": "A",
-              "legendFormat": "{{status_code}}"
-            }
-          ]
-        },
-        {
-          "type": "timeseries",
-          "transparent": false,
-          "repeatDirection": "h",
-          "title": "Request Latency Percentiles",
-          "description": "P50, P90, P99 request latency",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "s"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 0,
-            "y": 9
-          },
-          "targets": [
-            {
-              "expr": "histogram_quantile(0.50, sum(rate(mcpgate_http_request_duration_seconds_bucket{job=\"mcp-gate\"}[$__rate_interval])) by (le))",
-              "refId": "A",
-              "legendFormat": "p50"
-            },
-            {
-              "expr": "histogram_quantile(0.90, sum(rate(mcpgate_http_request_duration_seconds_bucket{job=\"mcp-gate\"}[$__rate_interval])) by (le))",
-              "refId": "B",
-              "legendFormat": "p90"
-            },
-            {
-              "expr": "histogram_quantile(0.99, sum(rate(mcpgate_http_request_duration_seconds_bucket{job=\"mcp-gate\"}[$__rate_interval])) by (le))",
-              "refId": "C",
-              "legendFormat": "p99"
-            }
-          ]
-        }
-      ],
+      "panels": [],
       "title": "Service Overview",
       "gridPos": {
         "x": 0,
@@ -237,6 +74,272 @@
         "h": 1,
         "w": 24
       }
+    },
+    {
+      "type": "stat",
+      "transparent": false,
+      "repeatDirection": "h",
+      "title": "Request Rate",
+      "description": "Requests per second",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "0",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "area",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "reduceOptions": {
+          "calcs": []
+        },
+        "percentChangeColorMode": "standard",
+        "orientation": "auto"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(mcpgate_http_requests_total{job=\"mcp-gate\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "req/s"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "transparent": false,
+      "repeatDirection": "h",
+      "title": "Error Rate",
+      "description": "5xx responses as percentage of total",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "0",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 0.01,
+                "color": "yellow"
+              },
+              {
+                "value": 0.05,
+                "color": "red"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "area",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "reduceOptions": {
+          "calcs": []
+        },
+        "percentChangeColorMode": "standard",
+        "orientation": "auto"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 8,
+        "y": 1
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(mcpgate_http_requests_total{job=\"mcp-gate\",status_code=~\"5..\"}[$__rate_interval])) / sum(rate(mcpgate_http_requests_total{job=\"mcp-gate\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "error %"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "transparent": false,
+      "repeatDirection": "h",
+      "title": "P95 Latency",
+      "description": "95th percentile request latency",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "noValue": "0",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 500,
+                "color": "yellow"
+              },
+              {
+                "value": 2000,
+                "color": "red"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "area",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "reduceOptions": {
+          "calcs": []
+        },
+        "percentChangeColorMode": "standard",
+        "orientation": "auto"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 1
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(mcpgate_http_request_duration_seconds_bucket{job=\"mcp-gate\"}[$__rate_interval])) by (le)) * 1000",
+          "refId": "A",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "transparent": false,
+      "repeatDirection": "h",
+      "title": "Request Rate by Status",
+      "description": "HTTP request rate broken down by status code",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "targets": [
+        {
+          "expr": "sum by (status_code) (rate(mcpgate_http_requests_total{job=\"mcp-gate\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{status_code}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "transparent": false,
+      "repeatDirection": "h",
+      "title": "Request Latency Percentiles",
+      "description": "P50, P90, P99 request latency",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(mcpgate_http_request_duration_seconds_bucket{job=\"mcp-gate\"}[$__rate_interval])) by (le))",
+          "refId": "A",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.90, sum(rate(mcpgate_http_request_duration_seconds_bucket{job=\"mcp-gate\"}[$__rate_interval])) by (le))",
+          "refId": "B",
+          "legendFormat": "p90"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(mcpgate_http_request_duration_seconds_bucket{job=\"mcp-gate\"}[$__rate_interval])) by (le))",
+          "refId": "C",
+          "legendFormat": "p99"
+        }
+      ]
     },
     {
       "type": "row",
@@ -255,15 +358,33 @@
           },
           "fieldConfig": {
             "defaults": {
-              "unit": "reqps"
+              "unit": "reqps",
+              "noValue": "0",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "green"
+              }
             },
             "overrides": []
           },
+          "options": {
+            "graphMode": "area",
+            "colorMode": "value",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "wideLayout": true,
+            "showPercentChange": false,
+            "reduceOptions": {
+              "calcs": []
+            },
+            "percentChangeColorMode": "standard",
+            "orientation": "auto"
+          },
           "gridPos": {
-            "h": 4,
-            "w": 3,
+            "h": 5,
+            "w": 6,
             "x": 0,
-            "y": 18
+            "y": 15
           },
           "targets": [
             {
@@ -285,15 +406,46 @@
           },
           "fieldConfig": {
             "defaults": {
-              "unit": "reqps"
+              "unit": "reqps",
+              "noValue": "0",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "value": null,
+                    "color": "green"
+                  },
+                  {
+                    "value": 0.1,
+                    "color": "yellow"
+                  },
+                  {
+                    "value": 1,
+                    "color": "red"
+                  }
+                ]
+              }
             },
             "overrides": []
           },
+          "options": {
+            "graphMode": "area",
+            "colorMode": "value",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "wideLayout": true,
+            "showPercentChange": false,
+            "reduceOptions": {
+              "calcs": []
+            },
+            "percentChangeColorMode": "standard",
+            "orientation": "auto"
+          },
           "gridPos": {
-            "h": 4,
-            "w": 3,
-            "x": 3,
-            "y": 18
+            "h": 5,
+            "w": 6,
+            "x": 6,
+            "y": 15
           },
           "targets": [
             {
@@ -315,15 +467,46 @@
           },
           "fieldConfig": {
             "defaults": {
-              "unit": "reqps"
+              "unit": "reqps",
+              "noValue": "0",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "value": null,
+                    "color": "green"
+                  },
+                  {
+                    "value": 0.1,
+                    "color": "yellow"
+                  },
+                  {
+                    "value": 1,
+                    "color": "red"
+                  }
+                ]
+              }
             },
             "overrides": []
           },
+          "options": {
+            "graphMode": "area",
+            "colorMode": "value",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "wideLayout": true,
+            "showPercentChange": false,
+            "reduceOptions": {
+              "calcs": []
+            },
+            "percentChangeColorMode": "standard",
+            "orientation": "auto"
+          },
           "gridPos": {
-            "h": 4,
-            "w": 3,
-            "x": 6,
-            "y": 18
+            "h": 5,
+            "w": 6,
+            "x": 12,
+            "y": 15
           },
           "targets": [
             {
@@ -345,15 +528,46 @@
           },
           "fieldConfig": {
             "defaults": {
-              "unit": "reqps"
+              "unit": "reqps",
+              "noValue": "0",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "value": null,
+                    "color": "green"
+                  },
+                  {
+                    "value": 0.1,
+                    "color": "yellow"
+                  },
+                  {
+                    "value": 1,
+                    "color": "red"
+                  }
+                ]
+              }
             },
             "overrides": []
           },
+          "options": {
+            "graphMode": "area",
+            "colorMode": "value",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "wideLayout": true,
+            "showPercentChange": false,
+            "reduceOptions": {
+              "calcs": []
+            },
+            "percentChangeColorMode": "standard",
+            "orientation": "auto"
+          },
           "gridPos": {
-            "h": 4,
-            "w": 3,
-            "x": 9,
-            "y": 18
+            "h": 5,
+            "w": 6,
+            "x": 18,
+            "y": 15
           },
           "targets": [
             {
@@ -379,11 +593,23 @@
             },
             "overrides": []
           },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
           "gridPos": {
             "h": 8,
-            "w": 6,
-            "x": 12,
-            "y": 18
+            "w": 12,
+            "x": 0,
+            "y": 20
           },
           "targets": [
             {
@@ -398,16 +624,16 @@
           "transparent": false,
           "repeatDirection": "h",
           "title": "Auth Outcomes",
-          "description": "Distribution of authentication outcomes",
+          "description": "Distribution of authentication outcomes over the selected time range",
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
           "gridPos": {
             "h": 8,
-            "w": 6,
-            "x": 18,
-            "y": 18
+            "w": 12,
+            "x": 12,
+            "y": 20
           },
           "targets": [
             {
@@ -423,7 +649,7 @@
       "title": "Authentication",
       "gridPos": {
         "x": 0,
-        "y": 17,
+        "y": 14,
         "h": 1,
         "w": 24
       }
@@ -438,27 +664,58 @@
           "transparent": false,
           "repeatDirection": "h",
           "title": "Upstream P95",
-          "description": "95th percentile upstream latency",
+          "description": "95th percentile upstream response latency",
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
           "fieldConfig": {
             "defaults": {
-              "unit": "s",
-              "decimals": 3
+              "unit": "ms",
+              "noValue": "0",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "value": null,
+                    "color": "green"
+                  },
+                  {
+                    "value": 500,
+                    "color": "yellow"
+                  },
+                  {
+                    "value": 2000,
+                    "color": "red"
+                  }
+                ]
+              }
             },
             "overrides": []
           },
+          "options": {
+            "graphMode": "area",
+            "colorMode": "value",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "wideLayout": true,
+            "showPercentChange": false,
+            "reduceOptions": {
+              "calcs": []
+            },
+            "percentChangeColorMode": "standard",
+            "orientation": "auto"
+          },
           "gridPos": {
-            "h": 4,
-            "w": 4,
+            "h": 5,
+            "w": 8,
             "x": 0,
-            "y": 27
+            "y": 29
           },
           "targets": [
             {
-              "expr": "histogram_quantile(0.95, sum(rate(mcpgate_proxy_request_duration_seconds_bucket{job=\"mcp-gate\"}[$__rate_interval])) by (le))",
+              "expr": "histogram_quantile(0.95, sum(rate(mcpgate_proxy_request_duration_seconds_bucket{job=\"mcp-gate\"}[$__rate_interval])) by (le)) * 1000",
               "refId": "A",
               "legendFormat": "p95"
             }
@@ -469,7 +726,7 @@
           "transparent": false,
           "repeatDirection": "h",
           "title": "Upstream Error Rate",
-          "description": "5xx upstream responses as percentage",
+          "description": "5xx upstream responses as percentage of total",
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
@@ -477,15 +734,46 @@
           "fieldConfig": {
             "defaults": {
               "unit": "percentunit",
-              "decimals": 2
+              "noValue": "0",
+              "decimals": 2,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "value": null,
+                    "color": "green"
+                  },
+                  {
+                    "value": 0.01,
+                    "color": "yellow"
+                  },
+                  {
+                    "value": 0.05,
+                    "color": "red"
+                  }
+                ]
+              }
             },
             "overrides": []
           },
+          "options": {
+            "graphMode": "area",
+            "colorMode": "value",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "wideLayout": true,
+            "showPercentChange": false,
+            "reduceOptions": {
+              "calcs": []
+            },
+            "percentChangeColorMode": "standard",
+            "orientation": "auto"
+          },
           "gridPos": {
-            "h": 4,
-            "w": 4,
-            "x": 4,
-            "y": 27
+            "h": 5,
+            "w": 8,
+            "x": 8,
+            "y": 29
           },
           "targets": [
             {
@@ -500,16 +788,48 @@
           "transparent": false,
           "repeatDirection": "h",
           "title": "JWKS Keys",
-          "description": "Number of cached JWKS keys",
+          "description": "Number of cached JWKS signing keys",
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "value": null,
+                    "color": "red"
+                  },
+                  {
+                    "value": 1,
+                    "color": "green"
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "graphMode": "area",
+            "colorMode": "value",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "wideLayout": true,
+            "showPercentChange": false,
+            "reduceOptions": {
+              "calcs": []
+            },
+            "percentChangeColorMode": "standard",
+            "orientation": "auto"
+          },
           "gridPos": {
-            "h": 4,
-            "w": 4,
-            "x": 8,
-            "y": 27
+            "h": 5,
+            "w": 8,
+            "x": 16,
+            "y": 29
           },
           "targets": [
             {
@@ -535,11 +855,23 @@
             },
             "overrides": []
           },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
           "gridPos": {
             "h": 8,
-            "w": 6,
-            "x": 12,
-            "y": 27
+            "w": 12,
+            "x": 0,
+            "y": 34
           },
           "targets": [
             {
@@ -575,11 +907,23 @@
             },
             "overrides": []
           },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
           "gridPos": {
             "h": 8,
-            "w": 6,
-            "x": 18,
-            "y": 27
+            "w": 12,
+            "x": 12,
+            "y": 34
           },
           "targets": [
             {
@@ -593,7 +937,7 @@
       "title": "Upstream Proxy",
       "gridPos": {
         "x": 0,
-        "y": 26,
+        "y": 28,
         "h": 1,
         "w": 24
       }
@@ -608,23 +952,23 @@
           "transparent": false,
           "repeatDirection": "h",
           "title": "Recent Traces",
-          "description": "Recent traces from Tempo for mcp-gate",
+          "description": "Recent traces (excludes health checks)",
           "datasource": {
             "type": "tempo",
             "uid": "${DS_TEMPO}"
           },
           "gridPos": {
-            "h": 10,
-            "w": 12,
+            "h": 12,
+            "w": 24,
             "x": 0,
-            "y": 36
+            "y": 43
           },
           "targets": [
             {
               "refId": "A",
               "filters": [],
               "queryType": "traceqlSearch",
-              "query": "{resource.service.name=\"mcp-gate\"}",
+              "query": "{resource.service.name=\"mcp-gate\" && name !~ \".*healthz.*\"}",
               "limit": 20
             }
           ]
@@ -633,77 +977,99 @@
       "title": "Trace Explorer",
       "gridPos": {
         "x": 0,
-        "y": 35,
+        "y": 42,
         "h": 1,
         "w": 24
       }
     },
     {
       "type": "row",
-      "collapsed": true,
+      "collapsed": false,
       "id": 0,
-      "panels": [
-        {
-          "type": "timeseries",
-          "transparent": false,
-          "repeatDirection": "h",
-          "title": "Log Volume",
-          "description": "Log volume by level",
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 6,
-            "w": 12,
-            "x": 0,
-            "y": 47
-          },
-          "targets": [
-            {
-              "expr": "sum by (level) (count_over_time({service_name=\"mcp-gate\"} | json [$__auto]))",
-              "refId": "A",
-              "legendFormat": "{{level}}"
-            }
-          ]
-        },
-        {
-          "type": "logs",
-          "transparent": false,
-          "repeatDirection": "h",
-          "title": "Live Logs",
-          "description": "Live log stream from mcp-gate",
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "gridPos": {
-            "h": 12,
-            "w": 12,
-            "x": 12,
-            "y": 47
-          },
-          "targets": [
-            {
-              "expr": "{service_name=\"mcp-gate\"} | json",
-              "refId": "A"
-            }
-          ]
-        }
-      ],
+      "panels": [],
       "title": "Logs",
       "gridPos": {
         "x": 0,
-        "y": 46,
+        "y": 55,
         "h": 1,
         "w": 24
       }
+    },
+    {
+      "type": "timeseries",
+      "transparent": false,
+      "repeatDirection": "h",
+      "title": "Log Volume",
+      "description": "Log volume by level (excludes health checks)",
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 56
+      },
+      "targets": [
+        {
+          "expr": "sum by (level) (count_over_time({service_name=\"mcp-gate\"} | json | path!=\"/healthz\" [$__auto]))",
+          "refId": "A",
+          "legendFormat": "{{level}}"
+        }
+      ]
+    },
+    {
+      "type": "logs",
+      "transparent": false,
+      "repeatDirection": "h",
+      "title": "Live Logs",
+      "description": "Live log stream (excludes health checks)",
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "options": {
+        "showLabels": false,
+        "showCommonLabels": false,
+        "showTime": true,
+        "showLogContextToggle": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      },
+      "gridPos": {
+        "h": 16,
+        "w": 24,
+        "x": 0,
+        "y": 61
+      },
+      "targets": [
+        {
+          "expr": "{service_name=\"mcp-gate\"} | json | path!=\"/healthz\"",
+          "refId": "A"
+        }
+      ]
     }
   ]
 }

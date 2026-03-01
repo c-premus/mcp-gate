@@ -1,22 +1,43 @@
 import { PanelBuilder as StatPanel } from "@grafana/grafana-foundation-sdk/stat";
 import { PanelBuilder as TimeseriesPanel } from "@grafana/grafana-foundation-sdk/timeseries";
 import { DataqueryBuilder as PrometheusQuery } from "@grafana/grafana-foundation-sdk/prometheus";
-import { RowBuilder } from "@grafana/grafana-foundation-sdk/dashboard";
+import {
+  RowBuilder,
+  ThresholdsConfigBuilder,
+} from "@grafana/grafana-foundation-sdk/dashboard";
+import { ThresholdsMode } from "@grafana/grafana-foundation-sdk/dashboard";
+import {
+  BigValueColorMode,
+  VizTooltipOptionsBuilder,
+  TooltipDisplayMode,
+  SortOrder,
+} from "@grafana/grafana-foundation-sdk/common";
 import { PROMETHEUS, JOB_FILTER } from "./constants";
 
 function proxyP95Stat(): StatPanel {
   return new StatPanel()
     .title("Upstream P95")
-    .description("95th percentile upstream latency")
+    .description("95th percentile upstream response latency")
     .datasource(PROMETHEUS)
-    .unit("s")
-    .span(4)
-    .height(4)
-    .decimals(3)
+    .unit("ms")
+    .noValue("0")
+    .decimals(0)
+    .colorMode(BigValueColorMode.Value)
+    .thresholds(
+      new ThresholdsConfigBuilder()
+        .mode(ThresholdsMode.Absolute)
+        .steps([
+          { value: null as unknown as number, color: "green" },
+          { value: 500, color: "yellow" },
+          { value: 2000, color: "red" },
+        ])
+    )
+    .span(8)
+    .height(5)
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `histogram_quantile(0.95, sum(rate(mcpgate_proxy_request_duration_seconds_bucket{${JOB_FILTER}}[$__rate_interval])) by (le))`
+          `histogram_quantile(0.95, sum(rate(mcpgate_proxy_request_duration_seconds_bucket{${JOB_FILTER}}[$__rate_interval])) by (le)) * 1000`
         )
         .legendFormat("p95")
         .refId("A")
@@ -26,12 +47,23 @@ function proxyP95Stat(): StatPanel {
 function proxyErrorRateStat(): StatPanel {
   return new StatPanel()
     .title("Upstream Error Rate")
-    .description("5xx upstream responses as percentage")
+    .description("5xx upstream responses as percentage of total")
     .datasource(PROMETHEUS)
     .unit("percentunit")
-    .span(4)
-    .height(4)
+    .noValue("0")
     .decimals(2)
+    .colorMode(BigValueColorMode.Value)
+    .thresholds(
+      new ThresholdsConfigBuilder()
+        .mode(ThresholdsMode.Absolute)
+        .steps([
+          { value: null as unknown as number, color: "green" },
+          { value: 0.01, color: "yellow" },
+          { value: 0.05, color: "red" },
+        ])
+    )
+    .span(8)
+    .height(5)
     .withTarget(
       new PrometheusQuery()
         .expr(
@@ -45,10 +77,20 @@ function proxyErrorRateStat(): StatPanel {
 function jwksKeysStat(): StatPanel {
   return new StatPanel()
     .title("JWKS Keys")
-    .description("Number of cached JWKS keys")
+    .description("Number of cached JWKS signing keys")
     .datasource(PROMETHEUS)
-    .span(4)
-    .height(4)
+    .noValue("0")
+    .colorMode(BigValueColorMode.Value)
+    .thresholds(
+      new ThresholdsConfigBuilder()
+        .mode(ThresholdsMode.Absolute)
+        .steps([
+          { value: null as unknown as number, color: "red" },
+          { value: 1, color: "green" },
+        ])
+    )
+    .span(8)
+    .height(5)
     .withTarget(
       new PrometheusQuery()
         .expr(`mcpgate_jwks_keys_loaded{${JOB_FILTER}}`)
@@ -63,7 +105,12 @@ function proxyLatencyTimeseries(): TimeseriesPanel {
     .description("P50, P90, P99 upstream proxy latency")
     .datasource(PROMETHEUS)
     .unit("s")
-    .span(6)
+    .tooltip(
+      new VizTooltipOptionsBuilder()
+        .mode(TooltipDisplayMode.Multi)
+        .sort(SortOrder.Descending)
+    )
+    .span(12)
     .height(8)
     .withTarget(
       new PrometheusQuery()
@@ -97,7 +144,12 @@ function proxyStatusTimeseries(): TimeseriesPanel {
     .description("Upstream response status codes over time")
     .datasource(PROMETHEUS)
     .unit("reqps")
-    .span(6)
+    .tooltip(
+      new VizTooltipOptionsBuilder()
+        .mode(TooltipDisplayMode.Multi)
+        .sort(SortOrder.Descending)
+    )
+    .span(12)
     .height(8)
     .withTarget(
       new PrometheusQuery()
@@ -111,6 +163,7 @@ function proxyStatusTimeseries(): TimeseriesPanel {
 
 export function proxyRow(): RowBuilder {
   return new RowBuilder("Upstream Proxy")
+    .collapsed(true)
     .withPanel(proxyP95Stat())
     .withPanel(proxyErrorRateStat())
     .withPanel(jwksKeysStat())

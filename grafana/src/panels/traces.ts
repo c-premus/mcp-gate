@@ -6,19 +6,21 @@ import { TEMPO, SERVICE_NAME } from "./constants";
 function recentTracesTable(): TablePanel {
   return new TablePanel()
     .title("Recent Traces")
-    .description("Recent traces from Tempo for mcp-gate")
+    .description("Recent traces (excludes health checks)")
     .datasource(TEMPO)
-    .span(12)
-    .height(10)
+    .span(24)
+    .height(12)
     .withTarget(
       new TempoQueryBuilder()
         .queryType("traceqlSearch")
-        .query(`{resource.service.name="${SERVICE_NAME}"}`)
+        .query(`{resource.service.name="${SERVICE_NAME}" && name !~ ".*healthz.*"}`)
         .limit(20)
         .refId("A")
     );
 }
 
 export function tracesRow(): RowBuilder {
-  return new RowBuilder("Trace Explorer").withPanel(recentTracesTable());
+  return new RowBuilder("Trace Explorer")
+    .collapsed(true)
+    .withPanel(recentTracesTable());
 }
