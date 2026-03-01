@@ -10,7 +10,7 @@ OAuth 2.1 reverse proxy for MCP servers. Implements [RFC 9728 Protected Resource
 2. **`/healthz`** — Health check for container orchestration
 3. **`/*`** — Validates Bearer JWT tokens via JWKS, then reverse-proxies to the upstream MCP server
 
-Every request is logged as structured JSON (`method`, `path`, `status`, `duration_ms`, `remote_addr`, `user_agent`) for Loki/Alloy ingestion.
+Every request is logged as structured JSON (`method`, `path`, `status`, `duration_ms`, `client_ip`, `user_agent`) for Loki/Alloy ingestion.
 
 ## Architecture
 
