@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/chris/mcp-gate/internal/proxy"
 )
@@ -40,7 +41,7 @@ func mustParseURL(t *testing.T, raw string) *url.URL {
 
 func doProxyRequest(t *testing.T, upstream *httptest.Server, req *http.Request) *http.Response {
 	t.Helper()
-	p := proxy.New(mustParseURL(t, upstream.URL))
+	p := proxy.New(mustParseURL(t, upstream.URL), proxy.DefaultTransportConfig())
 	rec := httptest.NewServer(p)
 	defer rec.Close()
 
@@ -144,7 +145,7 @@ func TestErrorHandlerReturns502(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	p := proxy.New(mustParseURL(t, upstream.URL))
+	p := proxy.New(mustParseURL(t, upstream.URL), proxy.DefaultTransportConfig())
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	w := httptest.NewRecorder()
 
@@ -179,7 +180,7 @@ func TestErrorHandlerNoInternalHostnames(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	p := proxy.New(mustParseURL(t, upstream.URL))
+	p := proxy.New(mustParseURL(t, upstream.URL), proxy.DefaultTransportConfig())
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	w := httptest.NewRecorder()
 
@@ -216,5 +217,33 @@ func TestModifyResponseStripsXPoweredBy(t *testing.T) {
 
 	if h := resp.Header.Get("X-Powered-By"); h != "" {
 		t.Errorf("X-Powered-By header not stripped: got %q", h)
+	}
+}
+
+func TestDefaultTransportConfig(t *testing.T) {
+	tc := proxy.DefaultTransportConfig()
+	if tc.DialTimeout != 5*time.Second {
+		t.Errorf("DialTimeout = %v, want 5s", tc.DialTimeout)
+	}
+	if tc.ResponseHeaderTimeout != 30*time.Second {
+		t.Errorf("ResponseHeaderTimeout = %v, want 30s", tc.ResponseHeaderTimeout)
+	}
+	if tc.MaxIdleConns != 100 {
+		t.Errorf("MaxIdleConns = %d, want 100", tc.MaxIdleConns)
+	}
+}
+
+func TestCustomTransportConfig_DialTimeout(t *testing.T) {
+	tc := proxy.DefaultTransportConfig()
+	tc.DialTimeout = time.Nanosecond // Impossibly short
+
+	// Use RFC 5737 TEST-NET address — guaranteed non-routable
+	p := proxy.New(mustParseURL(t, "http://192.0.2.1:1"), tc)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	w := httptest.NewRecorder()
+	p.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Errorf("expected 502 due to dial timeout, got %d", w.Code)
 	}
 }

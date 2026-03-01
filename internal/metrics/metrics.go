@@ -51,6 +51,26 @@ var (
 		Name: "mcpgate_jwks_keys_loaded",
 		Help: "Number of cached JWKS keys.",
 	})
+
+	RateLimitedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "mcpgate_rate_limited_total",
+		Help: "Total requests rejected by rate limiting.",
+	})
+
+	ActiveConnections = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "mcpgate_active_connections",
+		Help: "Number of active TCP connections.",
+	})
+
+	ActiveRequests = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "mcpgate_active_requests",
+		Help: "Number of active HTTP requests being processed.",
+	})
+
+	ConcurrentLimitedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "mcpgate_concurrent_limited_total",
+		Help: "Total requests rejected by concurrent request limiting.",
+	})
 )
 
 // Server serves Prometheus metrics and a health check on a separate port.

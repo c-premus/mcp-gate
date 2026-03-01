@@ -78,6 +78,10 @@ func defaultTestConfig(jwksURL, upstreamURL string) runConfig {
 		jwksRefreshInterval: time.Hour,
 		shutdownTimeout:     5 * time.Second,
 		maxRequestBody:      10 << 20,
+		rateLimitRPS:        1000, // High defaults — don't interfere with other tests
+		rateLimitBurst:      2000,
+		maxConcurrentPerIP:  100,
+		maxTotalConnections: 1000,
 	}
 }
 
@@ -172,6 +176,38 @@ func TestValidate_BadMaxRequestBody(t *testing.T) {
 	cfg.maxRequestBody = 0
 	if err := cfg.validate(); err == nil {
 		t.Error("expected error for zero max request body")
+	}
+}
+
+func TestValidate_BadRateLimitRPS(t *testing.T) {
+	cfg := defaultTestConfig("https://example.com/jwks", "http://localhost:8000")
+	cfg.rateLimitRPS = 0
+	if err := cfg.validate(); err == nil {
+		t.Error("expected error for zero rate limit RPS")
+	}
+}
+
+func TestValidate_BadRateLimitBurst(t *testing.T) {
+	cfg := defaultTestConfig("https://example.com/jwks", "http://localhost:8000")
+	cfg.rateLimitBurst = 0
+	if err := cfg.validate(); err == nil {
+		t.Error("expected error for zero rate limit burst")
+	}
+}
+
+func TestValidate_BadMaxConcurrentPerIP(t *testing.T) {
+	cfg := defaultTestConfig("https://example.com/jwks", "http://localhost:8000")
+	cfg.maxConcurrentPerIP = 0
+	if err := cfg.validate(); err == nil {
+		t.Error("expected error for zero max concurrent per IP")
+	}
+}
+
+func TestValidate_BadMaxTotalConnections(t *testing.T) {
+	cfg := defaultTestConfig("https://example.com/jwks", "http://localhost:8000")
+	cfg.maxTotalConnections = 0
+	if err := cfg.validate(); err == nil {
+		t.Error("expected error for zero max total connections")
 	}
 }
 
@@ -429,7 +465,7 @@ func TestRun_BadJWKSURIFails(t *testing.T) {
 	}
 }
 
-func TestRun_XContentTypeOptionsOnAllRoutes(t *testing.T) {
+func TestRun_SecurityHeadersOnAllRoutes(t *testing.T) {
 	jwks := newTestJWKS(t)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -440,7 +476,14 @@ func TestRun_XContentTypeOptionsOnAllRoutes(t *testing.T) {
 	result, cancel, _ := startRun(t, cfg)
 	defer cancel()
 
-	// nosniff should be on all routes: catch-all, healthz, and metadata.
+	expectedHeaders := map[string]string{
+		"X-Content-Type-Options": "nosniff",
+		"X-Frame-Options":        "DENY",
+		"Content-Security-Policy": "default-src 'none'",
+		"Referrer-Policy":         "no-referrer",
+	}
+
+	// Security headers should be on all routes: catch-all, healthz, and metadata.
 	paths := []string{"/anything", "/healthz", "/.well-known/oauth-protected-resource"}
 	for _, path := range paths {
 		resp, err := http.Get(fmt.Sprintf("http://%s%s", result.Addr, path))
@@ -450,8 +493,15 @@ func TestRun_XContentTypeOptionsOnAllRoutes(t *testing.T) {
 		_, _ = io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
 
-		if got := resp.Header.Get("X-Content-Type-Options"); got != "nosniff" {
-			t.Errorf("X-Content-Type-Options on %s = %q, want nosniff", path, got)
+		for header, want := range expectedHeaders {
+			if got := resp.Header.Get(header); got != want {
+				t.Errorf("%s on %s = %q, want %q", header, path, got, want)
+			}
+		}
+
+		// HSTS should NOT be set — Traefik handles TLS termination
+		if got := resp.Header.Get("Strict-Transport-Security"); got != "" {
+			t.Errorf("Strict-Transport-Security should not be set on %s, got %q", path, got)
 		}
 	}
 }
@@ -592,6 +642,10 @@ func TestLoadConfig_Errors(t *testing.T) {
 		{"bad_JWKS_REFRESH_INTERVAL", func(t *testing.T) { t.Setenv("JWKS_REFRESH_INTERVAL", "not-a-duration") }, "JWKS_REFRESH_INTERVAL"},
 		{"bad_SHUTDOWN_TIMEOUT", func(t *testing.T) { t.Setenv("SHUTDOWN_TIMEOUT", "not-a-duration") }, "SHUTDOWN_TIMEOUT"},
 		{"bad_MAX_REQUEST_BODY", func(t *testing.T) { t.Setenv("MAX_REQUEST_BODY", "not-a-number") }, "MAX_REQUEST_BODY"},
+		{"bad_RATE_LIMIT_RPS", func(t *testing.T) { t.Setenv("RATE_LIMIT_RPS", "not-a-float") }, "RATE_LIMIT_RPS"},
+		{"bad_RATE_LIMIT_BURST", func(t *testing.T) { t.Setenv("RATE_LIMIT_BURST", "not-a-number") }, "RATE_LIMIT_BURST"},
+		{"bad_MAX_CONCURRENT_REQUESTS", func(t *testing.T) { t.Setenv("MAX_CONCURRENT_REQUESTS", "not-a-number") }, "MAX_CONCURRENT_REQUESTS"},
+		{"bad_MAX_TOTAL_CONNECTIONS", func(t *testing.T) { t.Setenv("MAX_TOTAL_CONNECTIONS", "not-a-number") }, "MAX_TOTAL_CONNECTIONS"},
 	}
 
 	for _, tt := range tests {
@@ -707,5 +761,36 @@ func TestRun_AuthenticatedRequestProxied(t *testing.T) {
 	}
 	if string(body) != "upstream-ok" {
 		t.Errorf("body = %q, want upstream-ok", body)
+	}
+}
+
+func TestRun_RateLimiting429(t *testing.T) {
+	jwks := newTestJWKS(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
+	cfg.rateLimitRPS = 1
+	cfg.rateLimitBurst = 2
+	result, cancel, _ := startRun(t, cfg)
+	defer cancel()
+
+	// Send 3 rapid requests to /healthz (no auth needed)
+	for i := 0; i < 3; i++ {
+		resp, err := http.Get(fmt.Sprintf("http://%s/healthz", result.Addr))
+		if err != nil {
+			t.Fatalf("request %d failed: %v", i, err)
+		}
+		_, _ = io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+
+		if i < 2 && resp.StatusCode != http.StatusOK {
+			t.Errorf("request %d: status = %d, want 200", i, resp.StatusCode)
+		}
+		if i == 2 && resp.StatusCode != http.StatusTooManyRequests {
+			t.Errorf("request %d: status = %d, want 429", i, resp.StatusCode)
+		}
 	}
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/chris/mcp-gate/internal/metrics"
 	otelsetup "github.com/chris/mcp-gate/internal/otel"
 	"github.com/chris/mcp-gate/internal/proxy"
+	"github.com/chris/mcp-gate/internal/ratelimit"
 	"github.com/chris/mcp-gate/internal/realip"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
@@ -44,6 +45,10 @@ type runConfig struct {
 	shutdownTimeout     time.Duration
 	maxRequestBody      int64
 	trustedProxies      []*net.IPNet
+	rateLimitRPS        float64
+	rateLimitBurst      int
+	maxConcurrentPerIP  int
+	maxTotalConnections int
 	metricsAddr         string
 	otelEndpoint        string
 	otelServiceName     string
@@ -148,6 +153,18 @@ func (cfg runConfig) validate() error {
 	if cfg.maxRequestBody <= 0 {
 		return fmt.Errorf("max request body must be positive, got %d", cfg.maxRequestBody)
 	}
+	if cfg.rateLimitRPS <= 0 {
+		return fmt.Errorf("rate limit RPS must be positive, got %f", cfg.rateLimitRPS)
+	}
+	if cfg.rateLimitBurst <= 0 {
+		return fmt.Errorf("rate limit burst must be positive, got %d", cfg.rateLimitBurst)
+	}
+	if cfg.maxConcurrentPerIP <= 0 {
+		return fmt.Errorf("max concurrent requests per IP must be positive, got %d", cfg.maxConcurrentPerIP)
+	}
+	if cfg.maxTotalConnections <= 0 {
+		return fmt.Errorf("max total connections must be positive, got %d", cfg.maxTotalConnections)
+	}
 	return nil
 }
 
@@ -223,7 +240,7 @@ func run(ctx context.Context, cfg runConfig, ready chan<- *runResult) (*runResul
 	}
 
 	// Create reverse proxy
-	proxyHandler := proxy.New(cfg.upstreamURL)
+	proxyHandler := proxy.New(cfg.upstreamURL, proxy.DefaultTransportConfig())
 
 	// Register routes (Go 1.22+ method-specific patterns)
 	mux := http.NewServeMux()
@@ -248,14 +265,31 @@ func run(ctx context.Context, cfg runConfig, ready chan<- *runResult) (*runResul
 	}))
 
 	// Wrap mux with security headers applied to all routes
-	nosniff := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	securityHeaders := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'")
+		w.Header().Set("Referrer-Policy", "no-referrer")
 		mux.ServeHTTP(w, r)
 	})
 
+	// Per-IP rate limiter (token bucket with stale entry eviction)
+	rl := ratelimit.New(ctx, ratelimit.Config{
+		RPS:             cfg.rateLimitRPS,
+		Burst:           cfg.rateLimitBurst,
+		CleanupInterval: 5 * time.Minute,
+		StaleAfter:      10 * time.Minute,
+		TrustedProxies:  cfg.trustedProxies,
+	})
+
+	// Per-IP concurrent request limiter
+	cl := ratelimit.NewConcurrentLimiter(cfg.maxConcurrentPerIP, cfg.maxTotalConnections, cfg.trustedProxies)
+
 	// Handler wrapping order (outermost → innermost):
-	// otelhttp (trace spans) → metrics.Middleware (counters/histograms) → nosniff → mux
-	handler := metrics.Middleware(nosniff, cfg.trustedProxies)
+	// otelhttp → metrics → rateLimiter → concurrentLimiter → securityHeaders → mux
+	handler := cl.Middleware(securityHeaders)
+	handler = rl.Middleware(handler)
+	handler = metrics.Middleware(handler, cfg.trustedProxies)
 	handler = otelhttp.NewHandler(handler, "mcp-gate")
 
 	// Create server with timeouts (no WriteTimeout — kills SSE streams)
@@ -266,6 +300,14 @@ func run(ctx context.Context, cfg runConfig, ready chan<- *runResult) (*runResul
 		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20, // 1MB
+		ConnState: func(_ net.Conn, state http.ConnState) {
+			switch state {
+			case http.StateNew:
+				metrics.ActiveConnections.Inc()
+			case http.StateClosed, http.StateHijacked:
+				metrics.ActiveConnections.Dec()
+			}
+		},
 	}
 
 	// Bind listener so we know the actual address.
@@ -421,6 +463,26 @@ func loadConfig() (runConfig, error) {
 		return runConfig{}, fmt.Errorf("TRUSTED_PROXIES: %w", err)
 	}
 
+	rateLimitRPS, err := strconv.ParseFloat(getenvDefault("RATE_LIMIT_RPS", "10"), 64)
+	if err != nil {
+		return runConfig{}, fmt.Errorf("RATE_LIMIT_RPS is not a valid float: %w", err)
+	}
+
+	rateLimitBurst, err := strconv.Atoi(getenvDefault("RATE_LIMIT_BURST", "20"))
+	if err != nil {
+		return runConfig{}, fmt.Errorf("RATE_LIMIT_BURST is not a valid integer: %w", err)
+	}
+
+	maxConcurrentPerIP, err := strconv.Atoi(getenvDefault("MAX_CONCURRENT_REQUESTS", "100"))
+	if err != nil {
+		return runConfig{}, fmt.Errorf("MAX_CONCURRENT_REQUESTS is not a valid integer: %w", err)
+	}
+
+	maxTotalConnections, err := strconv.Atoi(getenvDefault("MAX_TOTAL_CONNECTIONS", "1000"))
+	if err != nil {
+		return runConfig{}, fmt.Errorf("MAX_TOTAL_CONNECTIONS is not a valid integer: %w", err)
+	}
+
 	metricsAddr := getenvDefault("METRICS_ADDR", ":9090")
 	otelEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") // intentionally optional
 	otelServiceName := getenvDefault("OTEL_SERVICE_NAME", "mcp-gate")
@@ -451,6 +513,10 @@ func loadConfig() (runConfig, error) {
 		shutdownTimeout:     shutdownTimeout,
 		maxRequestBody:      maxRequestBody,
 		trustedProxies:      trustedProxies,
+		rateLimitRPS:        rateLimitRPS,
+		rateLimitBurst:      rateLimitBurst,
+		maxConcurrentPerIP:  maxConcurrentPerIP,
+		maxTotalConnections: maxTotalConnections,
 		metricsAddr:         metricsAddr,
 		otelEndpoint:        otelEndpoint,
 		otelServiceName:     otelServiceName,
