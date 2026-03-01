@@ -241,7 +241,6 @@ func run(ctx context.Context, cfg runConfig, ready chan<- *runResult) (*runResul
 	authedProxy := authMW.Handler(proxyHandler)
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
-		slog.Debug("request received", "method", r.Method, "path", r.URL.Path, "remote_addr", r.RemoteAddr)
 		authedProxy.ServeHTTP(w, r)
 	}))
 

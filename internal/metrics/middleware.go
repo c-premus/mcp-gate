@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -73,5 +74,14 @@ func Middleware(next http.Handler) http.Handler {
 
 		HTTPRequestsTotal.WithLabelValues(r.Method, route, status).Inc()
 		HTTPRequestDuration.WithLabelValues(r.Method, route, status).Observe(duration)
+
+		slog.Info("request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", rec.statusCode,
+			"duration_ms", int(duration*1000),
+			"remote_addr", r.RemoteAddr,
+			"user_agent", r.Header.Get("User-Agent"),
+		)
 	})
 }
