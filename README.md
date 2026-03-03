@@ -34,6 +34,14 @@ export EXPECTED_AUDIENCE=your-client-id
 go run ./cmd/mcp-gate
 ```
 
+## Docker
+
+```bash
+docker pull cpremus/mcp-gate:latest
+```
+
+Images are published to [Docker Hub](https://hub.docker.com/r/cpremus/mcp-gate) on each release. Available tags: `latest`, version (e.g. `v1.2.0`).
+
 ## Documentation
 
 See [docs/spec.md](docs/spec.md) for the full specification.
