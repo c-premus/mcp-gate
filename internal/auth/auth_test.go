@@ -150,7 +150,7 @@ func doRequest(t *testing.T, mw *auth.Middleware, authHeader string) *httptest.R
 	next := &nextHandler{}
 	handler := mw.Handler(next)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	if authHeader != "" {
 		req.Header.Set("Authorization", authHeader)
 	}
@@ -169,7 +169,7 @@ func TestValidToken(t *testing.T) {
 
 	next := &nextHandler{}
 	handler := mw.Handler(next)
-	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)

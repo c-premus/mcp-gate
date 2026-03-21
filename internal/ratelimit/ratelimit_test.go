@@ -47,7 +47,7 @@ func TestMiddleware_AllowsUnderLimit(t *testing.T) {
 	handler := rl.Middleware(okHandler())
 
 	for i := range 5 {
-		req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 		req.RemoteAddr = "203.0.113.1:12345"
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
@@ -73,7 +73,7 @@ func TestMiddleware_RejectsOverLimit(t *testing.T) {
 
 	// First 3 should pass (burst=3)
 	for i := range 3 {
-		req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 		req.RemoteAddr = "203.0.113.1:12345"
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
@@ -83,7 +83,7 @@ func TestMiddleware_RejectsOverLimit(t *testing.T) {
 	}
 
 	// 4th should be rate limited
-	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	req.RemoteAddr = "203.0.113.1:12345"
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -107,7 +107,7 @@ func TestMiddleware_DifferentIPsIndependent(t *testing.T) {
 	handler := rl.Middleware(okHandler())
 
 	// Exhaust limit for IP A
-	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	req.RemoteAddr = "203.0.113.1:12345"
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -116,7 +116,7 @@ func TestMiddleware_DifferentIPsIndependent(t *testing.T) {
 	}
 
 	// IP A should now be limited
-	req = httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	req.RemoteAddr = "203.0.113.1:12345"
 	w = httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -125,7 +125,7 @@ func TestMiddleware_DifferentIPsIndependent(t *testing.T) {
 	}
 
 	// IP B should still work
-	req = httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	req.RemoteAddr = "203.0.113.2:12345"
 	w = httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -149,7 +149,7 @@ func TestMiddleware_ReplenishesTokens(t *testing.T) {
 	handler := rl.Middleware(okHandler())
 
 	// Use the single burst token
-	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	req.RemoteAddr = "203.0.113.1:12345"
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -160,7 +160,7 @@ func TestMiddleware_ReplenishesTokens(t *testing.T) {
 	// Wait for token replenishment (100 RPS = 10ms per token)
 	time.Sleep(20 * time.Millisecond)
 
-	req = httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	req.RemoteAddr = "203.0.113.1:12345"
 	w = httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -183,7 +183,7 @@ func TestMiddleware_ResponseFormat(t *testing.T) {
 
 	handler := rl.Middleware(okHandler())
 
-	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	req.RemoteAddr = "203.0.113.1:12345"
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -229,7 +229,7 @@ func TestMiddleware_UsesRealIP(t *testing.T) {
 	handler := rl.Middleware(okHandler())
 
 	// First request from "real" client via trusted proxy
-	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	req.RemoteAddr = "10.0.0.1:12345"
 	req.Header.Set("X-Real-Ip", "203.0.113.50")
 	w := httptest.NewRecorder()
@@ -239,7 +239,7 @@ func TestMiddleware_UsesRealIP(t *testing.T) {
 	}
 
 	// Second request from same "real" IP via different proxy port — should be limited
-	req = httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	req.RemoteAddr = "10.0.0.2:12345"
 	req.Header.Set("X-Real-Ip", "203.0.113.50")
 	w = httptest.NewRecorder()
@@ -249,7 +249,7 @@ func TestMiddleware_UsesRealIP(t *testing.T) {
 	}
 
 	// Different real IP should be allowed
-	req = httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	req.RemoteAddr = "10.0.0.1:12345"
 	req.Header.Set("X-Real-Ip", "203.0.113.51")
 	w = httptest.NewRecorder()
@@ -274,7 +274,7 @@ func TestCleanup_EvictsStaleEntries(t *testing.T) {
 	handler := rl.Middleware(okHandler())
 
 	// Generate an entry
-	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	req.RemoteAddr = "203.0.113.1:12345"
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -297,7 +297,7 @@ func TestConcurrentLimiter_AllowsUnderLimit(t *testing.T) {
 	cl := ratelimit.NewConcurrentLimiter(10, 100, nil)
 	handler := cl.Middleware(okHandler())
 
-	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	req.RemoteAddr = "203.0.113.1:12345"
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -322,7 +322,7 @@ func TestConcurrentLimiter_RejectsOverPerIPLimit(t *testing.T) {
 	// Start 2 blocking requests
 	for range 2 {
 		wg.Go(func() {
-			req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 			req.RemoteAddr = "203.0.113.1:12345"
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, req)
@@ -333,7 +333,7 @@ func TestConcurrentLimiter_RejectsOverPerIPLimit(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// 3rd request should be rejected
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 	req.RemoteAddr = "203.0.113.1:12345"
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -361,7 +361,7 @@ func TestConcurrentLimiter_RejectsOverTotalLimit(t *testing.T) {
 	// Start 2 requests from different IPs to hit total limit
 	for i := range 2 {
 		wg.Go(func() {
-			req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 			req.RemoteAddr = fmt.Sprintf("203.0.113.%d:12345", i+1)
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, req)
@@ -371,7 +371,7 @@ func TestConcurrentLimiter_RejectsOverTotalLimit(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// 3rd request from a new IP should be rejected (total limit reached)
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 	req.RemoteAddr = "203.0.113.99:12345"
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -390,7 +390,7 @@ func TestConcurrentLimiter_ReleasesOnCompletion(t *testing.T) {
 	handler := cl.Middleware(okHandler())
 
 	// First request completes immediately
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 	req.RemoteAddr = "203.0.113.1:12345"
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -399,7 +399,7 @@ func TestConcurrentLimiter_ReleasesOnCompletion(t *testing.T) {
 	}
 
 	// Second request should also succeed since first completed
-	req = httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 	req.RemoteAddr = "203.0.113.1:12345"
 	w = httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -413,7 +413,7 @@ func TestConcurrentLimiter_ResponseFormat(t *testing.T) {
 
 	handler := cl.Middleware(okHandler())
 
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 	req.RemoteAddr = "203.0.113.1:12345"
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -456,7 +456,7 @@ func TestConcurrentLimiter_DifferentIPsIndependent(t *testing.T) {
 
 	// Block one request from IP A
 	wg.Go(func() {
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 		req.RemoteAddr = "203.0.113.1:12345"
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
@@ -465,7 +465,7 @@ func TestConcurrentLimiter_DifferentIPsIndependent(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// IP B should still be allowed
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 	req.RemoteAddr = "203.0.113.2:12345"
 	done := make(chan int, 1)
 	go func() {

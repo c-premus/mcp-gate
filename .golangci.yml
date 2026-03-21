@@ -104,6 +104,14 @@ linters:
       excludes:
         # We intentionally don't set WriteTimeout for SSE streaming
         - G112
+        # G704: SSRF via taint — healthcheck URL is built from operator-controlled
+        # LISTEN_ADDR config, not user input. Test URLs are also safe.
+        - G704
+        # G706: Log injection via taint — slog structured logging JSON-encodes all
+        # values as key-value pairs, never interpolating into log message strings.
+        # This makes log injection via user-controlled fields (JWT claims, request
+        # paths, IPs) a non-issue.
+        - G706
 
 issues:
   max-issues-per-linter: 0

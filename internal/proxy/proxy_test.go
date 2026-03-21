@@ -144,7 +144,7 @@ func TestErrorHandlerReturns502(t *testing.T) {
 	defer upstream.Close()
 
 	p := proxy.New(mustParseURL(t, upstream.URL), proxy.DefaultTransportConfig())
-	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	w := httptest.NewRecorder()
 
 	p.ServeHTTP(w, req)
@@ -179,7 +179,7 @@ func TestErrorHandlerNoInternalHostnames(t *testing.T) {
 	defer upstream.Close()
 
 	p := proxy.New(mustParseURL(t, upstream.URL), proxy.DefaultTransportConfig())
-	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	w := httptest.NewRecorder()
 
 	p.ServeHTTP(w, req)
@@ -237,7 +237,7 @@ func TestCustomTransportConfig_DialTimeout(t *testing.T) {
 
 	// Use RFC 5737 TEST-NET address — guaranteed non-routable
 	p := proxy.New(mustParseURL(t, "http://192.0.2.1:1"), tc)
-	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	w := httptest.NewRecorder()
 	p.ServeHTTP(w, req)
 
