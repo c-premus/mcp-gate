@@ -256,9 +256,9 @@ func newTestJWKS(t *testing.T) *testJWKS {
 // --- Server lifecycle tests ---
 
 // startRun launches run() in a goroutine and waits for the server to be ready.
-func startRun(t *testing.T, cfg runConfig) (*runResult, context.CancelFunc, <-chan error) {
+func startRun(t *testing.T, cfg *runConfig) (*runResult, context.CancelFunc, <-chan error) {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	ready := make(chan *runResult, 1)
 	errCh := make(chan error, 1)
@@ -290,7 +290,7 @@ func TestRun_StartsAndShutdown(t *testing.T) {
 	defer upstream.Close()
 
 	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
-	result, cancel, errCh := startRun(t, cfg)
+	result, cancel, errCh := startRun(t, &cfg)
 
 	if result.Addr == "" {
 		t.Error("Addr is empty")
@@ -316,10 +316,11 @@ func TestRun_HealthCheckReady(t *testing.T) {
 	defer upstream.Close()
 
 	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
-	result, cancel, _ := startRun(t, cfg)
+	result, cancel, _ := startRun(t, &cfg)
 	defer cancel()
 
-	resp, err := http.Get(fmt.Sprintf("http://%s/healthz", result.Addr))
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, fmt.Sprintf("http://%s/healthz", result.Addr), http.NoBody)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("health check request failed: %v", err)
 	}
@@ -343,10 +344,11 @@ func TestRun_MetadataEndpoint(t *testing.T) {
 	defer upstream.Close()
 
 	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
-	result, cancel, _ := startRun(t, cfg)
+	result, cancel, _ := startRun(t, &cfg)
 	defer cancel()
 
-	resp, err := http.Get(fmt.Sprintf("http://%s/.well-known/oauth-protected-resource", result.Addr))
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, fmt.Sprintf("http://%s/.well-known/oauth-protected-resource", result.Addr), http.NoBody)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("metadata request failed: %v", err)
 	}
@@ -390,11 +392,12 @@ func TestRun_UnauthenticatedRequest401(t *testing.T) {
 	defer upstream.Close()
 
 	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
-	result, cancel, _ := startRun(t, cfg)
+	result, cancel, _ := startRun(t, &cfg)
 	defer cancel()
 
 	// Request without Authorization header should get 401
-	resp, err := http.Get(fmt.Sprintf("http://%s/mcp", result.Addr))
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, fmt.Sprintf("http://%s/mcp", result.Addr), http.NoBody)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
@@ -426,10 +429,10 @@ func TestRun_UnauthenticatedRequest401(t *testing.T) {
 
 func TestRun_InvalidConfigFails(t *testing.T) {
 	cfg := runConfig{} // Everything empty
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	_, err := run(ctx, cfg, nil)
+	_, err := run(ctx, &cfg, nil)
 	if err == nil {
 		t.Fatal("expected error for invalid config")
 	}
@@ -440,7 +443,7 @@ func TestRun_InvalidConfigFails(t *testing.T) {
 
 func TestRun_BadJWKSURIFails(t *testing.T) {
 	// Point JWKS at a closed server — should fail on init.
-	ln, err := net.Listen("tcp", "localhost:0")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "localhost:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -453,10 +456,10 @@ func TestRun_BadJWKSURIFails(t *testing.T) {
 	defer upstream.Close()
 
 	cfg := defaultTestConfig(closedURL, upstream.URL)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	_, err = run(ctx, cfg, nil)
+	_, err = run(ctx, &cfg, nil)
 	if err == nil {
 		t.Fatal("expected error for unreachable JWKS URI")
 	}
@@ -473,11 +476,11 @@ func TestRun_SecurityHeadersOnAllRoutes(t *testing.T) {
 	defer upstream.Close()
 
 	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
-	result, cancel, _ := startRun(t, cfg)
+	result, cancel, _ := startRun(t, &cfg)
 	defer cancel()
 
 	expectedHeaders := map[string]string{
-		"X-Content-Type-Options": "nosniff",
+		"X-Content-Type-Options":  "nosniff",
 		"X-Frame-Options":        "DENY",
 		"Content-Security-Policy": "default-src 'none'",
 		"Referrer-Policy":         "no-referrer",
@@ -486,7 +489,8 @@ func TestRun_SecurityHeadersOnAllRoutes(t *testing.T) {
 	// Security headers should be on all routes: catch-all, healthz, and metadata.
 	paths := []string{"/anything", "/healthz", "/.well-known/oauth-protected-resource"}
 	for _, path := range paths {
-		resp, err := http.Get(fmt.Sprintf("http://%s%s", result.Addr, path))
+		req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, fmt.Sprintf("http://%s%s", result.Addr, path), http.NoBody)
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatalf("request to %s failed: %v", path, err)
 		}
@@ -681,7 +685,7 @@ func TestLoadConfig_UpstreamHTTPS(t *testing.T) {
 
 func TestRun_ListenFailure(t *testing.T) {
 	// Occupy a port
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -696,10 +700,10 @@ func TestRun_ListenFailure(t *testing.T) {
 	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
 	cfg.listenAddr = ln.Addr().String()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	_, err = run(ctx, cfg, nil)
+	_, err = run(ctx, &cfg, nil)
 	if err == nil {
 		t.Fatal("expected error for occupied port")
 	}
@@ -722,7 +726,7 @@ func TestRun_AuthenticatedRequestProxied(t *testing.T) {
 	defer upstream.Close()
 
 	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
-	result, cancel, _ := startRun(t, cfg)
+	result, cancel, _ := startRun(t, &cfg)
 	defer cancel()
 
 	// Create valid JWT matching test config
@@ -739,7 +743,7 @@ func TestRun_AuthenticatedRequestProxied(t *testing.T) {
 	}
 	token := signTestToken(t, jwks.privKey, "test-key-1", claims)
 
-	req, _ := http.NewRequest(http.MethodPost, fmt.Sprintf("http://%s/mcp/v1", result.Addr), nil)
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, fmt.Sprintf("http://%s/mcp/v1", result.Addr), http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := http.DefaultClient.Do(req)
@@ -774,12 +778,13 @@ func TestRun_RateLimiting429(t *testing.T) {
 	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
 	cfg.rateLimitRPS = 1
 	cfg.rateLimitBurst = 2
-	result, cancel, _ := startRun(t, cfg)
+	result, cancel, _ := startRun(t, &cfg)
 	defer cancel()
 
 	// Send 3 rapid requests to /healthz (no auth needed)
-	for i := 0; i < 3; i++ {
-		resp, err := http.Get(fmt.Sprintf("http://%s/healthz", result.Addr))
+	for i := range 3 {
+		req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, fmt.Sprintf("http://%s/healthz", result.Addr), http.NoBody)
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatalf("request %d failed: %v", i, err)
 		}

@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"log/slog"
@@ -74,7 +75,11 @@ func main() {
 			if err != nil {
 				os.Exit(1)
 			}
-			resp, err := http.Get("http://localhost:" + port + "/healthz")
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://localhost:"+port+"/healthz", http.NoBody)
+			if err != nil {
+				os.Exit(1)
+			}
+			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
 				os.Exit(1)
 			}
@@ -111,38 +116,38 @@ func main() {
 
 	// Create context that cancels on SIGTERM/SIGINT.
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer cancel()
-
-	if _, err := run(ctx, cfg, nil); err != nil {
+	_, err = run(ctx, &cfg, nil)
+	cancel()
+	if err != nil {
 		log.Fatalf("fatal error: %v", err)
 	}
 }
 
 // validate checks that all runConfig fields are sensible.
-func (cfg runConfig) validate() error {
+func (cfg *runConfig) validate() error {
 	if cfg.listenAddr == "" {
-		return fmt.Errorf("listen address is required")
+		return errors.New("listen address is required")
 	}
 	if cfg.upstreamURL == nil {
-		return fmt.Errorf("upstream URL is required")
+		return errors.New("upstream URL is required")
 	}
 	if s := cfg.upstreamURL.Scheme; s != "http" && s != "https" {
 		return fmt.Errorf("upstream URL must use http:// or https://, got %s", s)
 	}
 	if cfg.resourceURI == "" {
-		return fmt.Errorf("resource URI is required")
+		return errors.New("resource URI is required")
 	}
 	if cfg.authServer == "" {
-		return fmt.Errorf("authorization server is required")
+		return errors.New("authorization server is required")
 	}
 	if cfg.jwksURI == "" {
-		return fmt.Errorf("JWKS URI is required")
+		return errors.New("JWKS URI is required")
 	}
 	if cfg.expectedIssuer == "" {
-		return fmt.Errorf("expected issuer is required")
+		return errors.New("expected issuer is required")
 	}
 	if cfg.expectedAudience == "" {
-		return fmt.Errorf("expected audience is required")
+		return errors.New("expected audience is required")
 	}
 	if cfg.jwksRefreshInterval <= 0 {
 		return fmt.Errorf("JWKS refresh interval must be positive, got %s", cfg.jwksRefreshInterval)
@@ -170,7 +175,7 @@ func (cfg runConfig) validate() error {
 
 // run starts the mcp-gate server and blocks until ctx is cancelled or a fatal
 // error occurs. If ready is non-nil, the result is sent after the listener is bound.
-func run(ctx context.Context, cfg runConfig, ready chan<- *runResult) (*runResult, error) {
+func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (*runResult, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
@@ -311,7 +316,7 @@ func run(ctx context.Context, cfg runConfig, ready chan<- *runResult) (*runResul
 	}
 
 	// Bind listener so we know the actual address.
-	ln, err := net.Listen("tcp", cfg.listenAddr)
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.listenAddr)
 	if err != nil {
 		return nil, fmt.Errorf("listen %s: %w", cfg.listenAddr, err)
 	}

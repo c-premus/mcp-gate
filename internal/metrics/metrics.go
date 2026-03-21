@@ -89,7 +89,7 @@ func NewServer(addr string) (*Server, error) {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	ln, err := net.Listen("tcp", addr)
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", addr)
 	if err != nil {
 		return nil, err
 	}

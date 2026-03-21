@@ -188,19 +188,20 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		// Scope validation — 403, not 401
 		tokenScopes := strings.Fields(claims.Scope)
 		for _, required := range m.cfg.RequiredScopes {
-			if !slices.Contains(tokenScopes, required) {
-				slog.Warn("token rejected",
-					"reason", "insufficient_scope",
-					"required", required,
-					"token_scopes", claims.Scope,
-					"client_ip", clientIP,
-					"jti", claims.ID,
-				)
-				metrics.AuthValidationsTotal.WithLabelValues("insufficient_scope").Inc()
-				span.SetAttributes(attribute.String("auth.outcome", "insufficient_scope"))
-				m.writeInsufficientScopeError(w)
-				return
+			if slices.Contains(tokenScopes, required) {
+				continue
 			}
+			slog.Warn("token rejected",
+				"reason", "insufficient_scope",
+				"required", required,
+				"token_scopes", claims.Scope,
+				"client_ip", clientIP,
+				"jti", claims.ID,
+			)
+			metrics.AuthValidationsTotal.WithLabelValues("insufficient_scope").Inc()
+			span.SetAttributes(attribute.String("auth.outcome", "insufficient_scope"))
+			m.writeInsufficientScopeError(w)
+			return
 		}
 
 		metrics.AuthValidationsTotal.WithLabelValues("valid").Inc()

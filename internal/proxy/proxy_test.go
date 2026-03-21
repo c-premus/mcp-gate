@@ -17,11 +17,11 @@ import (
 func echoUpstream() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := map[string]any{
-			"authorization":    r.Header.Get("Authorization"),
-			"cookie":           r.Header.Get("Cookie"),
-			"x-forwarded-for":  r.Header.Get("X-Forwarded-For"),
+			"authorization":     r.Header.Get("Authorization"),
+			"cookie":            r.Header.Get("Cookie"),
+			"x-forwarded-for":   r.Header.Get("X-Forwarded-For"),
 			"x-forwarded-proto": r.Header.Get("X-Forwarded-Proto"),
-			"url":              r.URL.String(),
+			"url":               r.URL.String(),
 		}
 		w.Header().Set("Server", "mcp-grafana/1.0")
 		w.Header().Set("X-Powered-By", "Go")
@@ -55,15 +55,17 @@ func doProxyRequest(t *testing.T, upstream *httptest.Server, req *http.Request) 
 }
 
 type echoResponse struct {
-	Authorization    string `json:"authorization"`
-	Cookie           string `json:"cookie"`
-	XForwardedFor    string `json:"x-forwarded-for"`
-	XForwardedProto  string `json:"x-forwarded-proto"`
-	URL              string `json:"url"`
+	Authorization   string `json:"authorization"`
+	Cookie          string `json:"cookie"`
+	XForwardedFor   string `json:"x-forwarded-for"`
+	XForwardedProto string `json:"x-forwarded-proto"`
+	URL             string `json:"url"`
 }
 
-func readEcho(t *testing.T, resp *http.Response) echoResponse {
+// doProxyEcho sends a request through the proxy and decodes the upstream echo response.
+func doProxyEcho(t *testing.T, upstream *httptest.Server, req *http.Request) echoResponse {
 	t.Helper()
+	resp := doProxyRequest(t, upstream, req)
 	defer func() { _ = resp.Body.Close() }()
 	var echo echoResponse
 	if err := json.NewDecoder(resp.Body).Decode(&echo); err != nil {
@@ -76,11 +78,10 @@ func TestAuthorizationHeaderStripped(t *testing.T) {
 	upstream := echoUpstream()
 	defer upstream.Close()
 
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	req.Header.Set("Authorization", "Bearer secret-token")
 
-	resp := doProxyRequest(t, upstream, req)
-	echo := readEcho(t, resp)
+	echo := doProxyEcho(t, upstream, req)
 
 	if echo.Authorization != "" {
 		t.Errorf("Authorization header not stripped: got %q", echo.Authorization)
@@ -91,11 +92,10 @@ func TestCookieHeaderStripped(t *testing.T) {
 	upstream := echoUpstream()
 	defer upstream.Close()
 
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	req.Header.Set("Cookie", "session=abc123")
 
-	resp := doProxyRequest(t, upstream, req)
-	echo := readEcho(t, resp)
+	echo := doProxyEcho(t, upstream, req)
 
 	if echo.Cookie != "" {
 		t.Errorf("Cookie header not stripped: got %q", echo.Cookie)
@@ -106,10 +106,9 @@ func TestAccessTokenQueryParamStripped(t *testing.T) {
 	upstream := echoUpstream()
 	defer upstream.Close()
 
-	req, _ := http.NewRequest(http.MethodGet, "/test?access_token=secret&foo=bar", nil)
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "/test?access_token=secret&foo=bar", http.NoBody)
 
-	resp := doProxyRequest(t, upstream, req)
-	echo := readEcho(t, resp)
+	echo := doProxyEcho(t, upstream, req)
 
 	if strings.Contains(echo.URL, "access_token") {
 		t.Errorf("access_token not stripped from URL: got %q", echo.URL)
@@ -123,10 +122,9 @@ func TestXForwardedForSet(t *testing.T) {
 	upstream := echoUpstream()
 	defer upstream.Close()
 
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 
-	resp := doProxyRequest(t, upstream, req)
-	echo := readEcho(t, resp)
+	echo := doProxyEcho(t, upstream, req)
 
 	if echo.XForwardedFor == "" {
 		t.Error("X-Forwarded-For not set")
@@ -146,7 +144,7 @@ func TestErrorHandlerReturns502(t *testing.T) {
 	defer upstream.Close()
 
 	p := proxy.New(mustParseURL(t, upstream.URL), proxy.DefaultTransportConfig())
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	w := httptest.NewRecorder()
 
 	p.ServeHTTP(w, req)
@@ -181,7 +179,7 @@ func TestErrorHandlerNoInternalHostnames(t *testing.T) {
 	defer upstream.Close()
 
 	p := proxy.New(mustParseURL(t, upstream.URL), proxy.DefaultTransportConfig())
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	w := httptest.NewRecorder()
 
 	p.ServeHTTP(w, req)
@@ -196,7 +194,7 @@ func TestModifyResponseStripsServerHeader(t *testing.T) {
 	upstream := echoUpstream()
 	defer upstream.Close()
 
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	resp := doProxyRequest(t, upstream, req)
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.ReadAll(resp.Body)
@@ -210,7 +208,7 @@ func TestModifyResponseStripsXPoweredBy(t *testing.T) {
 	upstream := echoUpstream()
 	defer upstream.Close()
 
-	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	resp := doProxyRequest(t, upstream, req)
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.ReadAll(resp.Body)
@@ -239,7 +237,7 @@ func TestCustomTransportConfig_DialTimeout(t *testing.T) {
 
 	// Use RFC 5737 TEST-NET address — guaranteed non-routable
 	p := proxy.New(mustParseURL(t, "http://192.0.2.1:1"), tc)
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	w := httptest.NewRecorder()
 	p.ServeHTTP(w, req)
 

@@ -19,7 +19,7 @@ func mustParseCIDRs(t *testing.T, cidrs []string) []*net.IPNet {
 
 func TestExtract_NoTrustedProxies(t *testing.T) {
 	// Without trusted proxies, always return RemoteAddr regardless of headers.
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	r.RemoteAddr = "203.0.113.50:12345"
 	r.Header.Set("X-Forwarded-For", "198.51.100.1")
 	r.Header.Set("X-Real-Ip", "198.51.100.2")
@@ -33,7 +33,7 @@ func TestExtract_NoTrustedProxies(t *testing.T) {
 func TestExtract_TrustedProxy_XRealIP(t *testing.T) {
 	trusted := mustParseCIDRs(t, []string{"172.20.0.0/16"})
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	r.RemoteAddr = "172.20.0.1:54321"
 	r.Header.Set("X-Real-Ip", "203.0.113.50")
 
@@ -47,7 +47,7 @@ func TestExtract_TrustedProxy_XRealIP_Priority(t *testing.T) {
 	// X-Real-IP should take priority over X-Forwarded-For.
 	trusted := mustParseCIDRs(t, []string{"172.20.0.0/16"})
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	r.RemoteAddr = "172.20.0.1:54321"
 	r.Header.Set("X-Real-Ip", "203.0.113.50")
 	r.Header.Set("X-Forwarded-For", "198.51.100.1, 172.20.0.5")
@@ -61,7 +61,7 @@ func TestExtract_TrustedProxy_XRealIP_Priority(t *testing.T) {
 func TestExtract_TrustedProxy_XFF_Simple(t *testing.T) {
 	trusted := mustParseCIDRs(t, []string{"172.20.0.0/16"})
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	r.RemoteAddr = "172.20.0.1:54321"
 	r.Header.Set("X-Forwarded-For", "203.0.113.50")
 
@@ -77,7 +77,7 @@ func TestExtract_TrustedProxy_XFF_RightToLeft(t *testing.T) {
 	// Should return 203.0.113.50 (first untrusted from the right).
 	trusted := mustParseCIDRs(t, []string{"172.20.0.0/16"})
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	r.RemoteAddr = "172.20.0.1:54321"
 	r.Header.Set("X-Forwarded-For", "203.0.113.50, 172.20.0.5, 172.20.0.6")
 
@@ -93,7 +93,7 @@ func TestExtract_TrustedProxy_XFF_SpoofPrevention(t *testing.T) {
 	// The attacker's prepended 1.2.3.4 is ignored.
 	trusted := mustParseCIDRs(t, []string{"172.20.0.0/16"})
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	r.RemoteAddr = "172.20.0.1:54321"
 	r.Header.Set("X-Forwarded-For", "1.2.3.4, 203.0.113.50, 172.20.0.5")
 
@@ -107,7 +107,7 @@ func TestExtract_UntrustedPeer_IgnoresHeaders(t *testing.T) {
 	// Peer is NOT trusted — headers must be ignored even if set.
 	trusted := mustParseCIDRs(t, []string{"10.0.0.0/8"})
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	r.RemoteAddr = "203.0.113.50:12345" // Not in 10.0.0.0/8
 	r.Header.Set("X-Real-Ip", "1.2.3.4")
 	r.Header.Set("X-Forwarded-For", "5.6.7.8")
@@ -122,7 +122,7 @@ func TestExtract_XFF_AllTrusted_FallsBack(t *testing.T) {
 	// All IPs in XFF are trusted — should fall back to RemoteAddr.
 	trusted := mustParseCIDRs(t, []string{"172.20.0.0/16"})
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	r.RemoteAddr = "172.20.0.1:54321"
 	r.Header.Set("X-Forwarded-For", "172.20.0.5, 172.20.0.6")
 
@@ -133,7 +133,7 @@ func TestExtract_XFF_AllTrusted_FallsBack(t *testing.T) {
 }
 
 func TestExtract_IPv6(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	r.RemoteAddr = "[2001:db8::1]:12345"
 
 	got := Extract(r, nil)
@@ -144,7 +144,7 @@ func TestExtract_IPv6(t *testing.T) {
 
 func TestExtract_IPv6_Normalization(t *testing.T) {
 	// Ensure verbose IPv6 is normalized to canonical form.
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	r.RemoteAddr = "[2001:0db8:0000:0000:0000:0000:0000:0001]:12345"
 
 	got := Extract(r, nil)
@@ -156,7 +156,7 @@ func TestExtract_IPv6_Normalization(t *testing.T) {
 func TestExtract_IPv6_Trusted_XFF(t *testing.T) {
 	trusted := mustParseCIDRs(t, []string{"fd00::/8"})
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	r.RemoteAddr = "[fd00::1]:54321"
 	r.Header.Set("X-Forwarded-For", "2001:db8::99")
 
@@ -170,7 +170,7 @@ func TestExtract_XRealIP_InvalidIP(t *testing.T) {
 	// Invalid X-Real-IP should fall through to XFF.
 	trusted := mustParseCIDRs(t, []string{"172.20.0.0/16"})
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	r.RemoteAddr = "172.20.0.1:54321"
 	r.Header.Set("X-Real-Ip", "not-an-ip")
 	r.Header.Set("X-Forwarded-For", "203.0.113.50")
@@ -185,7 +185,7 @@ func TestExtract_NoHeaders(t *testing.T) {
 	// Trusted peer but no forwarding headers — return RemoteAddr.
 	trusted := mustParseCIDRs(t, []string{"172.20.0.0/16"})
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	r.RemoteAddr = "172.20.0.1:54321"
 
 	got := Extract(r, trusted)
@@ -195,7 +195,7 @@ func TestExtract_NoHeaders(t *testing.T) {
 }
 
 func TestExtract_RemoteAddrNoPort(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	r.RemoteAddr = "203.0.113.50" // No port
 
 	got := Extract(r, nil)

@@ -20,7 +20,8 @@ func TestNewServer_ListensAndServesMetrics(t *testing.T) {
 	// Wait briefly for server to start
 	time.Sleep(50 * time.Millisecond)
 
-	resp, err := http.Get("http://" + srv.Addr() + "/metrics")
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+srv.Addr()+"/metrics", http.NoBody)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET /metrics: %v", err)
 	}
@@ -47,7 +48,8 @@ func TestNewServer_HealthEndpoint(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	resp, err := http.Get("http://" + srv.Addr() + "/healthz")
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+srv.Addr()+"/healthz", http.NoBody)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET /healthz: %v", err)
 	}

@@ -22,7 +22,7 @@ func testMetadata() metadata.ProtectedResourceMetadata {
 
 func TestHandler_GET_Returns200(t *testing.T) {
 	handler := metadata.Handler(testMetadata())
-	req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-protected-resource", nil)
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-protected-resource", http.NoBody)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -34,7 +34,7 @@ func TestHandler_GET_Returns200(t *testing.T) {
 
 func TestHandler_GET_ValidJSON(t *testing.T) {
 	handler := metadata.Handler(testMetadata())
-	req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-protected-resource", nil)
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-protected-resource", http.NoBody)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -56,7 +56,7 @@ func TestHandler_GET_ValidJSON(t *testing.T) {
 
 func TestHandler_GET_ContentType(t *testing.T) {
 	handler := metadata.Handler(testMetadata())
-	req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-protected-resource", nil)
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-protected-resource", http.NoBody)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -69,7 +69,7 @@ func TestHandler_GET_ContentType(t *testing.T) {
 
 func TestHandler_GET_CacheControl(t *testing.T) {
 	handler := metadata.Handler(testMetadata())
-	req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-protected-resource", nil)
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-protected-resource", http.NoBody)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -82,7 +82,7 @@ func TestHandler_GET_CacheControl(t *testing.T) {
 
 func TestHandler_POST_Returns405(t *testing.T) {
 	handler := metadata.Handler(testMetadata())
-	req := httptest.NewRequest(http.MethodPost, "/.well-known/oauth-protected-resource", nil)
+	req := httptest.NewRequest(http.MethodPost, "/.well-known/oauth-protected-resource", http.NoBody)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -94,7 +94,7 @@ func TestHandler_POST_Returns405(t *testing.T) {
 
 func TestHandler_PUT_Returns405(t *testing.T) {
 	handler := metadata.Handler(testMetadata())
-	req := httptest.NewRequest(http.MethodPut, "/.well-known/oauth-protected-resource", nil)
+	req := httptest.NewRequest(http.MethodPut, "/.well-known/oauth-protected-resource", http.NoBody)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -106,7 +106,7 @@ func TestHandler_PUT_Returns405(t *testing.T) {
 
 func TestHandler_DELETE_Returns405(t *testing.T) {
 	handler := metadata.Handler(testMetadata())
-	req := httptest.NewRequest(http.MethodDelete, "/.well-known/oauth-protected-resource", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/.well-known/oauth-protected-resource", http.NoBody)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)

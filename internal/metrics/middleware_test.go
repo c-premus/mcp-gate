@@ -22,7 +22,7 @@ func TestRouteClassifier(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			r := httptest.NewRequest(http.MethodGet, tt.path, http.NoBody)
 			if got := RouteClassifier(r); got != tt.want {
 				t.Errorf("RouteClassifier(%q) = %q, want %q", tt.path, got, tt.want)
 			}
@@ -78,7 +78,7 @@ func TestMiddleware_RecordsMetrics(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}), nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 

@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"maps"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -78,7 +79,7 @@ func base64URLUint(n *big.Int) string {
 func newMiddleware(t *testing.T, ts *testSetup, scopes []string) *auth.Middleware {
 	t.Helper()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 
 	mw, err := auth.NewMiddleware(auth.Config{
@@ -99,15 +100,13 @@ func newMiddleware(t *testing.T, ts *testSetup, scopes []string) *auth.Middlewar
 }
 
 // signToken creates a signed JWT string.
-func signToken(t *testing.T, privKey *rsa.PrivateKey, kid string, claims jwt.Claims, headers ...map[string]any) string {
+func signToken(t *testing.T, privKey *rsa.PrivateKey, claims jwt.Claims, headers ...map[string]any) string {
 	t.Helper()
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	token.Header["kid"] = kid
+	token.Header["kid"] = testKID
 	for _, h := range headers {
-		for k, v := range h {
-			token.Header[k] = v
-		}
+		maps.Copy(token.Header, h)
 	}
 
 	signed, err := token.SignedString(privKey)
@@ -151,7 +150,7 @@ func doRequest(t *testing.T, mw *auth.Middleware, authHeader string) *httptest.R
 	next := &nextHandler{}
 	handler := mw.Handler(next)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	if authHeader != "" {
 		req.Header.Set("Authorization", authHeader)
 	}
@@ -166,11 +165,11 @@ func TestValidToken(t *testing.T) {
 
 	mw := newMiddleware(t, ts, []string{"openid"})
 	claims := validClaims()
-	token := signToken(t, ts.privKey, testKID, claims, map[string]any{"typ": "at+jwt"})
+	token := signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
 
 	next := &nextHandler{}
 	handler := mw.Handler(next)
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -190,7 +189,7 @@ func TestExpiredToken(t *testing.T) {
 	mw := newMiddleware(t, ts, []string{"openid"})
 	claims := validClaims()
 	claims.ExpiresAt = jwt.NewNumericDate(time.Now().Add(-time.Hour))
-	token := signToken(t, ts.privKey, testKID, claims, map[string]any{"typ": "at+jwt"})
+	token := signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
 
 	w := doRequest(t, mw, "Bearer "+token)
 
@@ -211,7 +210,7 @@ func TestMissingExp(t *testing.T) {
 		"iat":   time.Now().Unix(),
 		"scope": "openid profile",
 	}
-	token := signToken(t, ts.privKey, testKID, mapClaims, map[string]any{"typ": "at+jwt"})
+	token := signToken(t, ts.privKey, mapClaims, map[string]any{"typ": "at+jwt"})
 
 	w := doRequest(t, mw, "Bearer "+token)
 
@@ -227,7 +226,7 @@ func TestWrongIssuer(t *testing.T) {
 	mw := newMiddleware(t, ts, []string{"openid"})
 	claims := validClaims()
 	claims.Issuer = "https://evil.example.com"
-	token := signToken(t, ts.privKey, testKID, claims, map[string]any{"typ": "at+jwt"})
+	token := signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
 
 	w := doRequest(t, mw, "Bearer "+token)
 
@@ -243,7 +242,7 @@ func TestWrongAudience(t *testing.T) {
 	mw := newMiddleware(t, ts, []string{"openid"})
 	claims := validClaims()
 	claims.Audience = jwt.ClaimStrings{"wrong-client"}
-	token := signToken(t, ts.privKey, testKID, claims, map[string]any{"typ": "at+jwt"})
+	token := signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
 
 	w := doRequest(t, mw, "Bearer "+token)
 
@@ -313,7 +312,7 @@ func TestMissingScopeReturns403(t *testing.T) {
 	mw := newMiddleware(t, ts, []string{"openid", "admin"})
 	claims := validClaims()
 	claims.Scope = "openid profile" // missing "admin"
-	token := signToken(t, ts.privKey, testKID, claims, map[string]any{"typ": "at+jwt"})
+	token := signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
 
 	w := doRequest(t, mw, "Bearer "+token)
 
@@ -336,7 +335,7 @@ func TestAudAsString(t *testing.T) {
 	// aud as single string (not array)
 	claims := validClaims()
 	claims.Audience = jwt.ClaimStrings{testAudience}
-	token := signToken(t, ts.privKey, testKID, claims, map[string]any{"typ": "at+jwt"})
+	token := signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
 
 	w := doRequest(t, mw, "Bearer "+token)
 
@@ -353,7 +352,7 @@ func TestAudAsArray(t *testing.T) {
 	// aud as array with multiple values
 	claims := validClaims()
 	claims.Audience = jwt.ClaimStrings{testAudience, "other-audience"}
-	token := signToken(t, ts.privKey, testKID, claims, map[string]any{"typ": "at+jwt"})
+	token := signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
 
 	w := doRequest(t, mw, "Bearer "+token)
 
@@ -370,7 +369,7 @@ func TestFutureIatRejected(t *testing.T) {
 	claims := validClaims()
 	// iat 10 minutes in the future (well beyond 30s leeway)
 	claims.IssuedAt = jwt.NewNumericDate(time.Now().Add(10 * time.Minute))
-	token := signToken(t, ts.privKey, testKID, claims, map[string]any{"typ": "at+jwt"})
+	token := signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
 
 	w := doRequest(t, mw, "Bearer "+token)
 
@@ -387,7 +386,7 @@ func TestFutureIatWithinLeeway(t *testing.T) {
 	claims := validClaims()
 	// iat 25 seconds in the future (within 30s leeway)
 	claims.IssuedAt = jwt.NewNumericDate(time.Now().Add(25 * time.Second))
-	token := signToken(t, ts.privKey, testKID, claims, map[string]any{"typ": "at+jwt"})
+	token := signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
 
 	w := doRequest(t, mw, "Bearer "+token)
 
@@ -402,7 +401,7 @@ func TestTypAtJwtPasses(t *testing.T) {
 
 	mw := newMiddleware(t, ts, []string{"openid"})
 	claims := validClaims()
-	token := signToken(t, ts.privKey, testKID, claims, map[string]any{"typ": "at+jwt"})
+	token := signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
 
 	w := doRequest(t, mw, "Bearer "+token)
 
@@ -418,7 +417,7 @@ func TestTypJWTDefaultPasses(t *testing.T) {
 	mw := newMiddleware(t, ts, []string{"openid"})
 	claims := validClaims()
 	// Default typ: "JWT" header (set by golang-jwt library)
-	token := signToken(t, ts.privKey, testKID, claims)
+	token := signToken(t, ts.privKey, claims)
 
 	w := doRequest(t, mw, "Bearer "+token)
 
@@ -433,7 +432,7 @@ func TestTypWrongValueRejected(t *testing.T) {
 
 	mw := newMiddleware(t, ts, []string{"openid"})
 	claims := validClaims()
-	token := signToken(t, ts.privKey, testKID, claims, map[string]any{"typ": "id_token+jwt"})
+	token := signToken(t, ts.privKey, claims, map[string]any{"typ": "id_token+jwt"})
 
 	w := doRequest(t, mw, "Bearer "+token)
 
