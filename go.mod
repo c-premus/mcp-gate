@@ -1,6 +1,6 @@
 module github.com/chris/mcp-gate
 
-go 1.26.0
+go 1.26.1
 
 require (
 	github.com/MicahParks/jwkset v0.11.0
