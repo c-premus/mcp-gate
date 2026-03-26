@@ -79,7 +79,8 @@ func main() {
 			if err != nil {
 				os.Exit(1)
 			}
-			resp, err := http.DefaultClient.Do(req)
+			client := &http.Client{Timeout: 5 * time.Second}
+			resp, err := client.Do(req)
 			if err != nil {
 				os.Exit(1)
 			}

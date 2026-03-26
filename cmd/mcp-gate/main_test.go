@@ -768,6 +768,96 @@ func TestRun_AuthenticatedRequestProxied(t *testing.T) {
 	}
 }
 
+func TestRun_OversizedBodyRejected(t *testing.T) {
+	jwks := newTestJWKS(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
+	cfg.maxRequestBody = 1024 // 1KB limit for test
+	result, cancel, _ := startRun(t, &cfg)
+	defer cancel()
+
+	// Create valid JWT
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"iss":   cfg.expectedIssuer,
+		"aud":   cfg.expectedAudience,
+		"exp":   now.Add(time.Hour).Unix(),
+		"iat":   now.Unix(),
+		"nbf":   now.Add(-time.Minute).Unix(),
+		"sub":   "test-user",
+		"jti":   "test-jti",
+		"scope": "openid profile",
+	}
+	token := signTestToken(t, jwks.privKey, "test-key-1", claims)
+
+	// Send body larger than maxRequestBody
+	body := strings.NewReader(strings.Repeat("x", 2048))
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, fmt.Sprintf("http://%s/mcp", result.Addr), body)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.ReadAll(resp.Body)
+
+	// Should get an error status (413 or 502 depending on where the limit triggers)
+	if resp.StatusCode == http.StatusOK {
+		t.Error("expected non-200 for oversized body, got 200")
+	}
+}
+
+func TestRun_PathTraversalBlocked(t *testing.T) {
+	jwks := newTestJWKS(t)
+
+	var gotPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
+	result, cancel, _ := startRun(t, &cfg)
+	defer cancel()
+
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"iss":   cfg.expectedIssuer,
+		"aud":   cfg.expectedAudience,
+		"exp":   now.Add(time.Hour).Unix(),
+		"iat":   now.Unix(),
+		"nbf":   now.Add(-time.Minute).Unix(),
+		"sub":   "test-user",
+		"jti":   "test-jti",
+		"scope": "openid profile",
+	}
+	token := signTestToken(t, jwks.privKey, "test-key-1", claims)
+
+	// Path traversal attempt — Go's ServeMux cleans literal /../ sequences,
+	// so they should be normalized before reaching the upstream.
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, fmt.Sprintf("http://%s/mcp/../../../etc/passwd", result.Addr), http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	_, _ = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+
+	// Go's net/http client and ServeMux clean /../ — the upstream should
+	// see a normalized path without traversal sequences
+	if strings.Contains(gotPath, "..") {
+		t.Errorf("path traversal not blocked: upstream saw %q", gotPath)
+	}
+}
+
 func TestRun_RateLimiting429(t *testing.T) {
 	jwks := newTestJWKS(t)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

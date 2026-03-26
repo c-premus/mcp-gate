@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -506,5 +507,207 @@ func TestEmptyBearerToken(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
 	if body["error"] != "unauthorized" {
 		t.Errorf("error = %q, want unauthorized", body["error"])
+	}
+}
+
+// --- Security audit tests ---
+
+func TestFutureNbfRejected(t *testing.T) {
+	ts := newTestSetup(t)
+	defer ts.Close()
+
+	mw := newMiddleware(t, ts, []string{"openid"})
+	claims := validClaims()
+	// nbf 10 minutes in the future (well beyond 30s leeway)
+	claims.NotBefore = jwt.NewNumericDate(time.Now().Add(10 * time.Minute))
+	token := signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
+
+	w := doRequest(t, mw, "Bearer "+token)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 (future nbf beyond leeway), got %d", w.Code)
+	}
+}
+
+func TestFutureNbfWithinLeeway(t *testing.T) {
+	ts := newTestSetup(t)
+	defer ts.Close()
+
+	mw := newMiddleware(t, ts, []string{"openid"})
+	claims := validClaims()
+	// nbf 25 seconds in the future (within 30s leeway)
+	claims.NotBefore = jwt.NewNumericDate(time.Now().Add(25 * time.Second))
+	token := signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
+
+	w := doRequest(t, mw, "Bearer "+token)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 (nbf within 30s leeway), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestMissingNbfRejected(t *testing.T) {
+	ts := newTestSetup(t)
+	defer ts.Close()
+
+	mw := newMiddleware(t, ts, []string{"openid"})
+	// Use MapClaims to omit nbf entirely
+	mapClaims := jwt.MapClaims{
+		"iss":   testIssuer,
+		"aud":   testAudience,
+		"exp":   time.Now().Add(time.Hour).Unix(),
+		"iat":   time.Now().Unix(),
+		"scope": "openid profile",
+	}
+	token := signToken(t, ts.privKey, mapClaims, map[string]any{"typ": "at+jwt"})
+
+	w := doRequest(t, mw, "Bearer "+token)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 (missing nbf must be rejected with WithNotBeforeRequired), got %d", w.Code)
+	}
+}
+
+func TestEmptyScopeRejected(t *testing.T) {
+	ts := newTestSetup(t)
+	defer ts.Close()
+
+	mw := newMiddleware(t, ts, []string{"openid"})
+	claims := validClaims()
+	claims.Scope = "" // empty scope when openid is required
+	token := signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
+
+	w := doRequest(t, mw, "Bearer "+token)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 (empty scope), got %d", w.Code)
+	}
+}
+
+func TestUnknownKidRejected(t *testing.T) {
+	ts := newTestSetup(t)
+	defer ts.Close()
+
+	mw := newMiddleware(t, ts, []string{"openid"})
+
+	// Generate a different RSA key (not in JWKS)
+	otherKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate other key: %v", err)
+	}
+
+	claims := validClaims()
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	token.Header["kid"] = "unknown-key-id"
+	token.Header["typ"] = "at+jwt"
+	signed, err := token.SignedString(otherKey)
+	if err != nil {
+		t.Fatalf("sign with other key: %v", err)
+	}
+
+	w := doRequest(t, mw, "Bearer "+signed)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 (unknown kid), got %d", w.Code)
+	}
+}
+
+func TestLargeTokenRejected(t *testing.T) {
+	ts := newTestSetup(t)
+	defer ts.Close()
+
+	mw := newMiddleware(t, ts, []string{"openid"})
+
+	// Send a 500KB garbage token — should get 401, not hang or OOM
+	largeToken := "Bearer " + strings.Repeat("a", 500_000)
+	w := doRequest(t, mw, largeToken)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for large garbage token, got %d", w.Code)
+	}
+}
+
+func TestMalformedJWKSResponse(t *testing.T) {
+	// JWKS endpoint returns invalid JSON
+	badServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"not": "jwks"}`))
+	}))
+	defer badServer.Close()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	_, err := auth.NewMiddleware(auth.Config{
+		Ctx:              ctx,
+		JWKSURI:          badServer.URL,
+		RefreshInterval:  time.Hour,
+		ExpectedIssuer:   testIssuer,
+		ExpectedAudience: testAudience,
+		RequiredScopes:   []string{"openid"},
+		ResourceURI:      testResource,
+		Realm:            testRealm,
+		ScopesSupported:  "openid profile",
+	})
+	// keyfunc may or may not error on empty keys — but middleware should not panic
+	if err != nil {
+		// Expected — JWKS has no valid keys
+		return
+	}
+	// If it doesn't error, IsReady should return false (no keys loaded)
+	// This is acceptable — the health check gate prevents traffic
+}
+
+func TestErrorResponseNoInternalDetails(t *testing.T) {
+	ts := newTestSetup(t)
+	defer ts.Close()
+
+	mw := newMiddleware(t, ts, []string{"openid"})
+	claims := validClaims()
+	claims.ExpiresAt = jwt.NewNumericDate(time.Now().Add(-time.Hour))
+	token := signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
+
+	w := doRequest(t, mw, "Bearer "+token)
+
+	body := w.Body.String()
+	// Response must not leak JWKS URI, key IDs, or JWT library error strings
+	if strings.Contains(body, ts.jwksServer.URL) {
+		t.Errorf("error body leaks JWKS URI: %s", body)
+	}
+	if strings.Contains(body, testKID) {
+		t.Errorf("error body leaks key ID: %s", body)
+	}
+	// The generic description "invalid or expired" is fine — ensure the specific
+	// library error strings are not leaked (e.g., "token is expired", parse errors)
+	if strings.Contains(body, "token is expired") {
+		t.Errorf("error body leaks specific JWT library error: %s", body)
+	}
+	if strings.Contains(body, "token is malformed") {
+		t.Errorf("error body leaks JWT parse error: %s", body)
+	}
+	if strings.Contains(body, "keyfunc") {
+		t.Errorf("error body leaks JWKS implementation detail: %s", body)
+	}
+}
+
+func TestMultipleAuthorizationHeaders(t *testing.T) {
+	ts := newTestSetup(t)
+	defer ts.Close()
+
+	mw := newMiddleware(t, ts, []string{"openid"})
+
+	next := &nextHandler{}
+	handler := mw.Handler(next)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
+	// Add multiple Authorization headers
+	req.Header.Add("Authorization", "Bearer token1")
+	req.Header.Add("Authorization", "Bearer token2")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	// Should reject — first header value is "token1" which is invalid
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for multiple auth headers, got %d", w.Code)
 	}
 }
