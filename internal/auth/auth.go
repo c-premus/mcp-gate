@@ -14,8 +14,8 @@ import (
 
 	"github.com/MicahParks/jwkset"
 	"github.com/MicahParks/keyfunc/v3"
-	"github.com/chris/mcp-gate/internal/metrics"
-	"github.com/chris/mcp-gate/internal/realip"
+	"github.com/c-premus/mcp-gate/internal/metrics"
+	"github.com/c-premus/mcp-gate/internal/realip"
 	"github.com/golang-jwt/jwt/v5"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"

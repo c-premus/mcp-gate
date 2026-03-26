@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chris/mcp-gate/internal/auth"
+	"github.com/c-premus/mcp-gate/internal/auth"
 	"github.com/golang-jwt/jwt/v5"
 )
 

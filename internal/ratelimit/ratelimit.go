@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chris/mcp-gate/internal/metrics"
-	"github.com/chris/mcp-gate/internal/realip"
+	"github.com/c-premus/mcp-gate/internal/metrics"
+	"github.com/c-premus/mcp-gate/internal/realip"
 	"golang.org/x/time/rate"
 )
 

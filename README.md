@@ -15,20 +15,20 @@ Every request is logged as structured JSON (`method`, `path`, `status`, `duratio
 ## Architecture
 
 ```
-Claude.ai → Traefik → mcp-gate (JWT validation) → mcp-grafana → Grafana
-                           ↕
-                       Authentik (OAuth 2.1 / OIDC)
+Claude.ai → Reverse Proxy → mcp-gate (JWT validation) → MCP Server → Backend
+                                 ↕
+                         Authorization Server (OAuth 2.1 / OIDC)
 ```
 
 ## Quick Start
 
 ```bash
 export LISTEN_ADDR=0.0.0.0:8080
-export UPSTREAM_URL=http://mcp-grafana:8000
+export UPSTREAM_URL=http://mcp-server:8000
 export RESOURCE_URI=https://mcp.example.com
-export AUTHORIZATION_SERVER=https://auth.example.com/application/o/grafana-mcp/
-export JWKS_URI=https://auth.example.com/application/o/grafana-mcp/jwks/
-export EXPECTED_ISSUER=https://auth.example.com/application/o/grafana-mcp/
+export AUTHORIZATION_SERVER=https://auth.example.com/application/o/mcp/
+export JWKS_URI=https://auth.example.com/application/o/mcp/jwks/
+export EXPECTED_ISSUER=https://auth.example.com/application/o/mcp/
 export EXPECTED_AUDIENCE=your-client-id
 
 go run ./cmd/mcp-gate
@@ -40,12 +40,12 @@ go run ./cmd/mcp-gate
 docker pull cpremus/mcp-gate:latest
 ```
 
-Images are published to [Docker Hub](https://hub.docker.com/r/cpremus/mcp-gate) on each release. Available tags: `latest`, version (e.g. `v1.2.0`).
+Images are published to [Docker Hub](https://hub.docker.com/r/cpremus/mcp-gate) and [GHCR](https://github.com/c-premus/mcp-gate/pkgs/container/mcp-gate) on each release. Available tags: `latest`, version (e.g. `v1.2.0`).
 
-## Documentation
+## Configuration
 
-See [docs/spec.md](docs/spec.md) for the full specification.
+All configuration is via environment variables. See the [environment variables table](cmd/mcp-gate/main.go) in the source for the full list.
 
 ## License
 
-Private — internal use only.
+MIT

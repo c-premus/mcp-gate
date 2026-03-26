@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/chris/mcp-gate/internal/realip"
+	"github.com/c-premus/mcp-gate/internal/realip"
 )
 
 // RouteClassifier maps a request path to a bounded route label for metrics.

@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/chris/mcp-gate/internal/metrics"
+	"github.com/c-premus/mcp-gate/internal/metrics"
 )
 
 // TransportConfig holds timeout and connection pool settings for the upstream transport.

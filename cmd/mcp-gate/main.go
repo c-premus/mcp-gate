@@ -17,13 +17,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/chris/mcp-gate/internal/auth"
-	"github.com/chris/mcp-gate/internal/metadata"
-	"github.com/chris/mcp-gate/internal/metrics"
-	otelsetup "github.com/chris/mcp-gate/internal/otel"
-	"github.com/chris/mcp-gate/internal/proxy"
-	"github.com/chris/mcp-gate/internal/ratelimit"
-	"github.com/chris/mcp-gate/internal/realip"
+	"github.com/c-premus/mcp-gate/internal/auth"
+	"github.com/c-premus/mcp-gate/internal/metadata"
+	"github.com/c-premus/mcp-gate/internal/metrics"
+	otelsetup "github.com/c-premus/mcp-gate/internal/otel"
+	"github.com/c-premus/mcp-gate/internal/proxy"
+	"github.com/c-premus/mcp-gate/internal/ratelimit"
+	"github.com/c-premus/mcp-gate/internal/realip"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 

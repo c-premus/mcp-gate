@@ -1,4 +1,4 @@
-module github.com/chris/mcp-gate
+module github.com/c-premus/mcp-gate
 
 go 1.26.1
 

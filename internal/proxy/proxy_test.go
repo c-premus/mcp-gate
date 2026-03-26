@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chris/mcp-gate/internal/proxy"
+	"github.com/c-premus/mcp-gate/internal/proxy"
 )
 
 // echoUpstream returns headers and URL received by the upstream, as JSON.

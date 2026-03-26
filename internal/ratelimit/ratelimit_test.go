@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chris/mcp-gate/internal/ratelimit"
-	"github.com/chris/mcp-gate/internal/realip"
+	"github.com/c-premus/mcp-gate/internal/ratelimit"
+	"github.com/c-premus/mcp-gate/internal/realip"
 )
 
 func mustParseCIDRs(t *testing.T, cidrs ...string) []*net.IPNet {

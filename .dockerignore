@@ -1,6 +1,7 @@
 .git
 .claude
 .forgejo
+.github
 memory-bank
 docs
 README.md
