@@ -49,7 +49,7 @@ Images are published to [Docker Hub](https://hub.docker.com/r/cpremus/mcp-gate) 
 
 ## Setup
 
-See the **[Setup Guide](docs/setup.md)** for step-by-step instructions on:
+See the **[Setup Guide](https://github.com/c-premus/mcp-gate/blob/main/docs/setup.md)** for step-by-step instructions on:
 
 1. Creating an OAuth client in your OIDC provider (Keycloak, Authentik, Okta, Auth0, etc.)
 2. Configuring mcp-gate
@@ -57,7 +57,7 @@ See the **[Setup Guide](docs/setup.md)** for step-by-step instructions on:
 
 ## Configuration
 
-All configuration is via environment variables. See the [Setup Guide](docs/setup.md#step-3-configure-and-run-mcp-gate) for the full list.
+All configuration is via environment variables. See the [Setup Guide](https://github.com/c-premus/mcp-gate/blob/main/docs/setup.md#step-3-configure-and-run-mcp-gate) for the full list.
 
 ## License
 
