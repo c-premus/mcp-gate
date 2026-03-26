@@ -1,0 +1,40 @@
+# Binaries
+/mcp-gate
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Build output
+/dist/
+
+# Test
+*.test
+*.out
+coverage.html
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Grafana dashboard project
+grafana/node_modules/
+grafana/dist/
+
+# Environment (secrets)
+.env
+*.env.local
