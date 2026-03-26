@@ -93,7 +93,6 @@ func NewMiddleware(cfg Config) (*Middleware, error) {
 		jwt.WithAudience(cfg.ExpectedAudience),
 		jwt.WithIssuedAt(),
 		jwt.WithExpirationRequired(),
-		jwt.WithNotBeforeRequired(),
 		jwt.WithLeeway(30*time.Second),
 	)
 

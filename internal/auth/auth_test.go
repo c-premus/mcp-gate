@@ -546,12 +546,13 @@ func TestFutureNbfWithinLeeway(t *testing.T) {
 	}
 }
 
-func TestMissingNbfRejected(t *testing.T) {
+func TestMissingNbfAccepted(t *testing.T) {
 	ts := newTestSetup(t)
 	defer ts.Close()
 
 	mw := newMiddleware(t, ts, []string{"openid"})
-	// Use MapClaims to omit nbf entirely
+	// Use MapClaims to omit nbf entirely — should be accepted since many
+	// providers (including Authentik) do not include nbf in access tokens.
 	mapClaims := jwt.MapClaims{
 		"iss":   testIssuer,
 		"aud":   testAudience,
@@ -563,8 +564,8 @@ func TestMissingNbfRejected(t *testing.T) {
 
 	w := doRequest(t, mw, "Bearer "+token)
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 (missing nbf must be rejected with WithNotBeforeRequired), got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 (missing nbf should be accepted), got %d: %s", w.Code, w.Body.String())
 	}
 }
 
