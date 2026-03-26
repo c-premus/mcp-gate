@@ -1,5 +1,10 @@
 # mcp-gate
 
+[![CI](https://github.com/c-premus/mcp-gate/actions/workflows/ci.yaml/badge.svg)](https://github.com/c-premus/mcp-gate/actions/workflows/ci.yaml)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/c-premus/mcp-gate)](https://go.dev/)
+[![License](https://img.shields.io/github/license/c-premus/mcp-gate)](LICENSE)
+[![Docker Pulls](https://img.shields.io/docker/pulls/cpremus/mcp-gate)](https://hub.docker.com/r/cpremus/mcp-gate)
+
 OAuth 2.1 reverse proxy for MCP servers. Implements [RFC 9728 Protected Resource Metadata](https://datatracker.ietf.org/doc/html/rfc9728) and JWT validation, delegating authentication to an external authorization server.
 
 ## What it does
@@ -42,9 +47,17 @@ docker pull cpremus/mcp-gate:latest
 
 Images are published to [Docker Hub](https://hub.docker.com/r/cpremus/mcp-gate) and [GHCR](https://github.com/c-premus/mcp-gate/pkgs/container/mcp-gate) on each release. Available tags: `latest`, version (e.g. `v1.2.0`).
 
+## Setup
+
+See the **[Setup Guide](docs/setup.md)** for step-by-step instructions on:
+
+1. Creating an OAuth client in your OIDC provider (Keycloak, Authentik, Okta, Auth0, etc.)
+2. Configuring mcp-gate
+3. Connecting Claude.ai to the protected MCP server
+
 ## Configuration
 
-All configuration is via environment variables. See the [environment variables table](cmd/mcp-gate/main.go) in the source for the full list.
+All configuration is via environment variables. See the [Setup Guide](docs/setup.md#step-3-configure-and-run-mcp-gate) for the full list.
 
 ## License
 
