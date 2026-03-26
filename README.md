@@ -3,7 +3,6 @@
 [![CI](https://github.com/c-premus/mcp-gate/actions/workflows/ci.yaml/badge.svg)](https://github.com/c-premus/mcp-gate/actions/workflows/ci.yaml)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/c-premus/mcp-gate)](https://go.dev/)
 [![License](https://img.shields.io/github/license/c-premus/mcp-gate)](LICENSE)
-[![Docker Pulls](https://img.shields.io/docker/pulls/cpremus/mcp-gate)](https://hub.docker.com/r/cpremus/mcp-gate)
 
 OAuth 2.1 reverse proxy for MCP servers. Implements [RFC 9728 Protected Resource Metadata](https://datatracker.ietf.org/doc/html/rfc9728) and JWT validation, delegating authentication to an external authorization server.
 
