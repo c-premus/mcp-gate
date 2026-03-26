@@ -1,6 +1,9 @@
-// Package realip extracts the real client IP from HTTP requests,
-// accounting for trusted reverse proxies that set X-Real-IP and
-// X-Forwarded-For headers.
+// Package realip extracts the real client IP from HTTP requests.
+//
+// It trusts X-Real-IP and X-Forwarded-For headers only when the direct
+// peer is within a configured trusted CIDR. X-Forwarded-For is walked
+// right-to-left, skipping trusted proxy IPs, to prevent spoofing.
+// If no trusted proxies are configured, RemoteAddr is always used.
 package realip
 
 import (

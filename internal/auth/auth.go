@@ -1,4 +1,9 @@
 // Package auth provides JWT validation middleware using JWKS.
+//
+// It validates Bearer tokens per RFC 6750, enforces RS256 algorithm
+// restriction, and returns RFC 9728-aware WWW-Authenticate challenges.
+// JWKS keys are fetched on startup and refreshed periodically, with
+// rate-limited refresh on unknown key IDs.
 package auth
 
 import (

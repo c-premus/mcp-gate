@@ -1,4 +1,8 @@
 // Package proxy provides the reverse proxy to upstream MCP servers.
+//
+// It strips the client Authorization header before forwarding (the upstream
+// authenticates separately), removes hop-by-hop headers, and supports SSE
+// streaming via FlushInterval for MCP streamable-http transport.
 package proxy
 
 import (

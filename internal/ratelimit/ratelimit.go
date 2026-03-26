@@ -1,4 +1,9 @@
 // Package ratelimit provides per-IP rate limiting and concurrent request limiting.
+//
+// Limiter enforces a token-bucket rate limit per client IP with automatic
+// cleanup of stale entries. ConcurrentLimiter caps in-flight requests per IP
+// and globally. Both resolve client IPs through trusted proxy headers via
+// the realip package.
 package ratelimit
 
 import (

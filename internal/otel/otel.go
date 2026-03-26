@@ -1,4 +1,8 @@
 // Package otel provides OpenTelemetry tracing setup with OTLP HTTP export.
+//
+// Tracing is optional: if no OTLP endpoint is configured, Setup returns nil.
+// TLS is auto-detected from the endpoint URL scheme — https endpoints use
+// TLS by default, http endpoints use WithInsecure.
 package otel
 
 import (

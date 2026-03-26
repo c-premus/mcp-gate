@@ -1,4 +1,8 @@
 // Package metadata serves RFC 9728 Protected Resource Metadata.
+//
+// It provides an HTTP handler for the /.well-known/oauth-protected-resource
+// endpoint, returning a static JSON document that directs MCP clients to the
+// appropriate OAuth 2.1 authorization server.
 package metadata
 
 import (

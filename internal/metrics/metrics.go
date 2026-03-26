@@ -1,4 +1,9 @@
 // Package metrics provides Prometheus metric definitions and a metrics server.
+//
+// All metrics use the "mcpgate_" prefix and cover HTTP requests, authentication
+// outcomes, proxy latency, JWKS key counts, rate limiting, and connection
+// tracking. The package also provides HTTP middleware for request logging
+// and metric recording.
 package metrics
 
 import (
