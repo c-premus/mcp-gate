@@ -50,6 +50,10 @@ type runConfig struct {
 	rateLimitBurst      int
 	maxConcurrentPerIP  int
 	maxTotalConnections int
+	upstreamTimeout     time.Duration
+	readTimeout         time.Duration
+	idleTimeout         time.Duration
+	maxHeaderBytes      int
 	metricsAddr         string
 	otelEndpoint        string
 	otelServiceName     string
@@ -171,6 +175,18 @@ func (cfg *runConfig) validate() error {
 	if cfg.maxTotalConnections <= 0 {
 		return fmt.Errorf("max total connections must be positive, got %d", cfg.maxTotalConnections)
 	}
+	if cfg.upstreamTimeout <= 0 {
+		return fmt.Errorf("upstream timeout must be positive, got %s", cfg.upstreamTimeout)
+	}
+	if cfg.readTimeout <= 0 {
+		return fmt.Errorf("read timeout must be positive, got %s", cfg.readTimeout)
+	}
+	if cfg.idleTimeout <= 0 {
+		return fmt.Errorf("idle timeout must be positive, got %s", cfg.idleTimeout)
+	}
+	if cfg.maxHeaderBytes <= 0 {
+		return fmt.Errorf("max header bytes must be positive, got %d", cfg.maxHeaderBytes)
+	}
 	return nil
 }
 
@@ -245,8 +261,10 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (*runResu
 		metrics.JWKSKeysLoaded.Set(float64(keyCount))
 	}
 
-	// Create reverse proxy
-	proxyHandler := proxy.New(cfg.upstreamURL, proxy.DefaultTransportConfig())
+	// Create reverse proxy with configurable upstream timeout
+	tc := proxy.DefaultTransportConfig()
+	tc.ResponseHeaderTimeout = cfg.upstreamTimeout
+	proxyHandler := proxy.New(cfg.upstreamURL, tc)
 
 	// Register routes (Go 1.22+ method-specific patterns)
 	mux := http.NewServeMux()
@@ -307,9 +325,9 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (*runResu
 		Addr:              cfg.listenAddr,
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		MaxHeaderBytes:    1 << 20, // 1MB
+		ReadTimeout:       cfg.readTimeout,
+		IdleTimeout:       cfg.idleTimeout,
+		MaxHeaderBytes:    cfg.maxHeaderBytes,
 		ConnState: func(_ net.Conn, state http.ConnState) {
 			switch state {
 			case http.StateNew:
@@ -453,19 +471,19 @@ func loadConfig() (runConfig, error) {
 	scopesSupported := splitCSV(getenvDefault("SCOPES_SUPPORTED", "openid,profile"))
 	resourceName := getenvDefault("RESOURCE_NAME", "Grafana MCP Server")
 
-	jwksRefreshInterval, err := time.ParseDuration(getenvDefault("JWKS_REFRESH_INTERVAL", "1h"))
+	jwksRefreshInterval, err := getenvDuration("JWKS_REFRESH_INTERVAL", "1h")
 	if err != nil {
-		return runConfig{}, fmt.Errorf("JWKS_REFRESH_INTERVAL is not a valid duration: %w", err)
+		return runConfig{}, err
 	}
 
-	shutdownTimeout, err := time.ParseDuration(getenvDefault("SHUTDOWN_TIMEOUT", "30s"))
+	shutdownTimeout, err := getenvDuration("SHUTDOWN_TIMEOUT", "30s")
 	if err != nil {
-		return runConfig{}, fmt.Errorf("SHUTDOWN_TIMEOUT is not a valid duration: %w", err)
+		return runConfig{}, err
 	}
 
-	maxRequestBody, err := strconv.ParseInt(getenvDefault("MAX_REQUEST_BODY", "10485760"), 10, 64)
+	maxRequestBody, err := getenvInt64("MAX_REQUEST_BODY", "10485760")
 	if err != nil {
-		return runConfig{}, fmt.Errorf("MAX_REQUEST_BODY is not a valid integer: %w", err)
+		return runConfig{}, err
 	}
 
 	trustedProxies, err := realip.ParseCIDRs(splitCSV(os.Getenv("TRUSTED_PROXIES")))
@@ -473,39 +491,56 @@ func loadConfig() (runConfig, error) {
 		return runConfig{}, fmt.Errorf("TRUSTED_PROXIES: %w", err)
 	}
 
-	rateLimitRPS, err := strconv.ParseFloat(getenvDefault("RATE_LIMIT_RPS", "10"), 64)
+	rateLimitRPS, err := getenvFloat("RATE_LIMIT_RPS", "10")
 	if err != nil {
-		return runConfig{}, fmt.Errorf("RATE_LIMIT_RPS is not a valid float: %w", err)
+		return runConfig{}, err
 	}
 
-	rateLimitBurst, err := strconv.Atoi(getenvDefault("RATE_LIMIT_BURST", "20"))
+	rateLimitBurst, err := getenvInt("RATE_LIMIT_BURST", "20")
 	if err != nil {
-		return runConfig{}, fmt.Errorf("RATE_LIMIT_BURST is not a valid integer: %w", err)
+		return runConfig{}, err
 	}
 
-	maxConcurrentPerIP, err := strconv.Atoi(getenvDefault("MAX_CONCURRENT_REQUESTS", "100"))
+	maxConcurrentPerIP, err := getenvInt("MAX_CONCURRENT_REQUESTS", "100")
 	if err != nil {
-		return runConfig{}, fmt.Errorf("MAX_CONCURRENT_REQUESTS is not a valid integer: %w", err)
+		return runConfig{}, err
 	}
 
-	maxTotalConnections, err := strconv.Atoi(getenvDefault("MAX_TOTAL_CONNECTIONS", "1000"))
+	maxTotalConnections, err := getenvInt("MAX_TOTAL_CONNECTIONS", "1000")
 	if err != nil {
-		return runConfig{}, fmt.Errorf("MAX_TOTAL_CONNECTIONS is not a valid integer: %w", err)
+		return runConfig{}, err
+	}
+
+	upstreamTimeout, err := getenvDuration("UPSTREAM_TIMEOUT", "120s")
+	if err != nil {
+		return runConfig{}, err
+	}
+
+	readTimeout, err := getenvDuration("READ_TIMEOUT", "30s")
+	if err != nil {
+		return runConfig{}, err
+	}
+
+	idleTimeout, err := getenvDuration("IDLE_TIMEOUT", "120s")
+	if err != nil {
+		return runConfig{}, err
+	}
+
+	maxHeaderBytes, err := getenvInt("MAX_HEADER_BYTES", "65536")
+	if err != nil {
+		return runConfig{}, err
 	}
 
 	metricsAddr := getenvDefault("METRICS_ADDR", ":9090")
 	otelEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") // intentionally optional
 	otelServiceName := getenvDefault("OTEL_SERVICE_NAME", "mcp-gate")
 
-	otelSampleRate := 1.0
-	if raw := os.Getenv("OTEL_TRACE_SAMPLE_RATE"); raw != "" {
-		otelSampleRate, err = strconv.ParseFloat(raw, 64)
-		if err != nil {
-			return runConfig{}, fmt.Errorf("OTEL_TRACE_SAMPLE_RATE is not a valid float: %w", err)
-		}
-		if otelSampleRate < 0.0 || otelSampleRate > 1.0 {
-			return runConfig{}, fmt.Errorf("OTEL_TRACE_SAMPLE_RATE must be between 0.0 and 1.0, got %f", otelSampleRate)
-		}
+	otelSampleRate, err := getenvFloat("OTEL_TRACE_SAMPLE_RATE", "1.0")
+	if err != nil {
+		return runConfig{}, err
+	}
+	if otelSampleRate < 0.0 || otelSampleRate > 1.0 {
+		return runConfig{}, fmt.Errorf("OTEL_TRACE_SAMPLE_RATE must be between 0.0 and 1.0, got %f", otelSampleRate)
 	}
 
 	return runConfig{
@@ -527,6 +562,10 @@ func loadConfig() (runConfig, error) {
 		rateLimitBurst:      rateLimitBurst,
 		maxConcurrentPerIP:  maxConcurrentPerIP,
 		maxTotalConnections: maxTotalConnections,
+		upstreamTimeout:     upstreamTimeout,
+		readTimeout:         readTimeout,
+		idleTimeout:         idleTimeout,
+		maxHeaderBytes:      maxHeaderBytes,
 		metricsAddr:         metricsAddr,
 		otelEndpoint:        otelEndpoint,
 		otelServiceName:     otelServiceName,
@@ -547,6 +586,42 @@ func getenvDefault(key, fallback string) string {
 		return val
 	}
 	return fallback
+}
+
+func getenvDuration(key, fallback string) (time.Duration, error) {
+	raw := getenvDefault(key, fallback)
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s is not a valid duration: %w", key, err)
+	}
+	return d, nil
+}
+
+func getenvInt(key, fallback string) (int, error) {
+	raw := getenvDefault(key, fallback)
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s is not a valid integer: %w", key, err)
+	}
+	return n, nil
+}
+
+func getenvInt64(key, fallback string) (int64, error) {
+	raw := getenvDefault(key, fallback)
+	n, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s is not a valid integer: %w", key, err)
+	}
+	return n, nil
+}
+
+func getenvFloat(key, fallback string) (float64, error) {
+	raw := getenvDefault(key, fallback)
+	f, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s is not a valid float: %w", key, err)
+	}
+	return f, nil
 }
 
 func splitCSV(s string) []string {

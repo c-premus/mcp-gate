@@ -100,6 +100,12 @@ In many providers, the issuer URL and the authorization server URL are the same 
 | `MAX_CONCURRENT_REQUESTS` | `100` | Max concurrent requests per IP |
 | `MAX_TOTAL_CONNECTIONS` | `1000` | Max total connections |
 | `MAX_REQUEST_BODY` | `10485760` | Max request body in bytes (10 MB) |
+| `UPSTREAM_TIMEOUT` | `120s` | Time to wait for first upstream response byte |
+| `READ_TIMEOUT` | `30s` | Inbound request read timeout |
+| `IDLE_TIMEOUT` | `120s` | Keep-alive idle timeout |
+| `MAX_HEADER_BYTES` | `65536` | Max request header size in bytes (64 KB) |
+
+**Timeout notes**: MCP connections are long-lived (SSE/streamable-http). `UPSTREAM_TIMEOUT` controls how long mcp-gate waits for the upstream MCP server to send the first response byte — complex queries (e.g., PromQL range queries over weeks of data) may need the full 120s default. `IDLE_TIMEOUT` controls how long idle keep-alive connections stay open between MCP tool calls.
 
 ### Docker
 

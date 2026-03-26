@@ -223,8 +223,8 @@ func TestDefaultTransportConfig(t *testing.T) {
 	if tc.DialTimeout != 5*time.Second {
 		t.Errorf("DialTimeout = %v, want 5s", tc.DialTimeout)
 	}
-	if tc.ResponseHeaderTimeout != 30*time.Second {
-		t.Errorf("ResponseHeaderTimeout = %v, want 30s", tc.ResponseHeaderTimeout)
+	if tc.ResponseHeaderTimeout != 120*time.Second {
+		t.Errorf("ResponseHeaderTimeout = %v, want 120s", tc.ResponseHeaderTimeout)
 	}
 	if tc.MaxIdleConns != 100 {
 		t.Errorf("MaxIdleConns = %d, want 100", tc.MaxIdleConns)

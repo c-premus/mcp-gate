@@ -82,6 +82,10 @@ func defaultTestConfig(jwksURL, upstreamURL string) runConfig {
 		rateLimitBurst:      2000,
 		maxConcurrentPerIP:  100,
 		maxTotalConnections: 1000,
+		upstreamTimeout:     120 * time.Second,
+		readTimeout:         30 * time.Second,
+		idleTimeout:         120 * time.Second,
+		maxHeaderBytes:      65536,
 	}
 }
 
@@ -208,6 +212,38 @@ func TestValidate_BadMaxTotalConnections(t *testing.T) {
 	cfg.maxTotalConnections = 0
 	if err := cfg.validate(); err == nil {
 		t.Error("expected error for zero max total connections")
+	}
+}
+
+func TestValidate_BadUpstreamTimeout(t *testing.T) {
+	cfg := defaultTestConfig("https://example.com/jwks", "http://localhost:8000")
+	cfg.upstreamTimeout = 0
+	if err := cfg.validate(); err == nil {
+		t.Error("expected error for zero upstream timeout")
+	}
+}
+
+func TestValidate_BadReadTimeout(t *testing.T) {
+	cfg := defaultTestConfig("https://example.com/jwks", "http://localhost:8000")
+	cfg.readTimeout = 0
+	if err := cfg.validate(); err == nil {
+		t.Error("expected error for zero read timeout")
+	}
+}
+
+func TestValidate_BadIdleTimeout(t *testing.T) {
+	cfg := defaultTestConfig("https://example.com/jwks", "http://localhost:8000")
+	cfg.idleTimeout = 0
+	if err := cfg.validate(); err == nil {
+		t.Error("expected error for zero idle timeout")
+	}
+}
+
+func TestValidate_BadMaxHeaderBytes(t *testing.T) {
+	cfg := defaultTestConfig("https://example.com/jwks", "http://localhost:8000")
+	cfg.maxHeaderBytes = 0
+	if err := cfg.validate(); err == nil {
+		t.Error("expected error for zero max header bytes")
 	}
 }
 
@@ -585,6 +621,18 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if cfg.maxRequestBody != 10485760 {
 		t.Errorf("maxRequestBody = %d, want 10485760", cfg.maxRequestBody)
 	}
+	if cfg.upstreamTimeout != 120*time.Second {
+		t.Errorf("upstreamTimeout = %v, want 120s", cfg.upstreamTimeout)
+	}
+	if cfg.readTimeout != 30*time.Second {
+		t.Errorf("readTimeout = %v, want 30s", cfg.readTimeout)
+	}
+	if cfg.idleTimeout != 120*time.Second {
+		t.Errorf("idleTimeout = %v, want 120s", cfg.idleTimeout)
+	}
+	if cfg.maxHeaderBytes != 65536 {
+		t.Errorf("maxHeaderBytes = %d, want 65536", cfg.maxHeaderBytes)
+	}
 }
 
 func TestLoadConfig_Optionals(t *testing.T) {
@@ -595,6 +643,10 @@ func TestLoadConfig_Optionals(t *testing.T) {
 	t.Setenv("JWKS_REFRESH_INTERVAL", "30m")
 	t.Setenv("SHUTDOWN_TIMEOUT", "10s")
 	t.Setenv("MAX_REQUEST_BODY", "5242880")
+	t.Setenv("UPSTREAM_TIMEOUT", "60s")
+	t.Setenv("READ_TIMEOUT", "15s")
+	t.Setenv("IDLE_TIMEOUT", "90s")
+	t.Setenv("MAX_HEADER_BYTES", "32768")
 
 	cfg, err := loadConfig()
 	if err != nil {
@@ -618,6 +670,18 @@ func TestLoadConfig_Optionals(t *testing.T) {
 	}
 	if cfg.maxRequestBody != 5242880 {
 		t.Errorf("maxRequestBody = %d, want 5242880", cfg.maxRequestBody)
+	}
+	if cfg.upstreamTimeout != 60*time.Second {
+		t.Errorf("upstreamTimeout = %v, want 60s", cfg.upstreamTimeout)
+	}
+	if cfg.readTimeout != 15*time.Second {
+		t.Errorf("readTimeout = %v, want 15s", cfg.readTimeout)
+	}
+	if cfg.idleTimeout != 90*time.Second {
+		t.Errorf("idleTimeout = %v, want 90s", cfg.idleTimeout)
+	}
+	if cfg.maxHeaderBytes != 32768 {
+		t.Errorf("maxHeaderBytes = %d, want 32768", cfg.maxHeaderBytes)
 	}
 }
 
@@ -650,6 +714,10 @@ func TestLoadConfig_Errors(t *testing.T) {
 		{"bad_RATE_LIMIT_BURST", func(t *testing.T) { t.Setenv("RATE_LIMIT_BURST", "not-a-number") }, "RATE_LIMIT_BURST"},
 		{"bad_MAX_CONCURRENT_REQUESTS", func(t *testing.T) { t.Setenv("MAX_CONCURRENT_REQUESTS", "not-a-number") }, "MAX_CONCURRENT_REQUESTS"},
 		{"bad_MAX_TOTAL_CONNECTIONS", func(t *testing.T) { t.Setenv("MAX_TOTAL_CONNECTIONS", "not-a-number") }, "MAX_TOTAL_CONNECTIONS"},
+		{"bad_UPSTREAM_TIMEOUT", func(t *testing.T) { t.Setenv("UPSTREAM_TIMEOUT", "not-a-duration") }, "UPSTREAM_TIMEOUT"},
+		{"bad_READ_TIMEOUT", func(t *testing.T) { t.Setenv("READ_TIMEOUT", "not-a-duration") }, "READ_TIMEOUT"},
+		{"bad_IDLE_TIMEOUT", func(t *testing.T) { t.Setenv("IDLE_TIMEOUT", "not-a-duration") }, "IDLE_TIMEOUT"},
+		{"bad_MAX_HEADER_BYTES", func(t *testing.T) { t.Setenv("MAX_HEADER_BYTES", "not-a-number") }, "MAX_HEADER_BYTES"},
 	}
 
 	for _, tt := range tests {

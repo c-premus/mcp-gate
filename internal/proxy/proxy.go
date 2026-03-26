@@ -27,13 +27,14 @@ type TransportConfig struct {
 }
 
 // DefaultTransportConfig returns production defaults for the upstream transport.
-// ResponseHeaderTimeout (30s) is safe for SSE — it only times the wait for the
-// first response header byte, not the streaming body.
+// ResponseHeaderTimeout (120s) times the wait for the first response header byte
+// from upstream. MCP tool calls (e.g., complex PromQL queries) may need the full
+// duration. Override via UPSTREAM_TIMEOUT env var.
 func DefaultTransportConfig() TransportConfig {
 	return TransportConfig{
 		DialTimeout:           5 * time.Second,
 		TLSHandshakeTimeout:   5 * time.Second,
-		ResponseHeaderTimeout: 30 * time.Second,
+		ResponseHeaderTimeout: 120 * time.Second,
 		MaxIdleConns:          100,
 		MaxIdleConnsPerHost:   20,
 		IdleConnTimeout:       90 * time.Second,
