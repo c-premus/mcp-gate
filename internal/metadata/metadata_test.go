@@ -9,6 +9,15 @@ import (
 	"github.com/c-premus/mcp-gate/internal/metadata"
 )
 
+func mustHandler(t *testing.T, meta metadata.ProtectedResourceMetadata) http.HandlerFunc {
+	t.Helper()
+	h, err := metadata.Handler(meta)
+	if err != nil {
+		t.Fatalf("metadata.Handler: %v", err)
+	}
+	return h
+}
+
 func testMetadata() metadata.ProtectedResourceMetadata {
 	return metadata.ProtectedResourceMetadata{
 		Resource:               "https://mcp.example.com",
@@ -21,7 +30,7 @@ func testMetadata() metadata.ProtectedResourceMetadata {
 }
 
 func TestHandler_GET_Returns200(t *testing.T) {
-	handler := metadata.Handler(testMetadata())
+	handler := mustHandler(t, testMetadata())
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/.well-known/oauth-protected-resource", http.NoBody)
 	w := httptest.NewRecorder()
 
@@ -33,7 +42,7 @@ func TestHandler_GET_Returns200(t *testing.T) {
 }
 
 func TestHandler_GET_ValidJSON(t *testing.T) {
-	handler := metadata.Handler(testMetadata())
+	handler := mustHandler(t, testMetadata())
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/.well-known/oauth-protected-resource", http.NoBody)
 	w := httptest.NewRecorder()
 
@@ -55,7 +64,7 @@ func TestHandler_GET_ValidJSON(t *testing.T) {
 }
 
 func TestHandler_GET_ContentType(t *testing.T) {
-	handler := metadata.Handler(testMetadata())
+	handler := mustHandler(t, testMetadata())
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/.well-known/oauth-protected-resource", http.NoBody)
 	w := httptest.NewRecorder()
 
@@ -68,7 +77,7 @@ func TestHandler_GET_ContentType(t *testing.T) {
 }
 
 func TestHandler_GET_CacheControl(t *testing.T) {
-	handler := metadata.Handler(testMetadata())
+	handler := mustHandler(t, testMetadata())
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/.well-known/oauth-protected-resource", http.NoBody)
 	w := httptest.NewRecorder()
 
@@ -81,7 +90,7 @@ func TestHandler_GET_CacheControl(t *testing.T) {
 }
 
 func TestHandler_POST_Returns405(t *testing.T) {
-	handler := metadata.Handler(testMetadata())
+	handler := mustHandler(t, testMetadata())
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/.well-known/oauth-protected-resource", http.NoBody)
 	w := httptest.NewRecorder()
 
@@ -93,7 +102,7 @@ func TestHandler_POST_Returns405(t *testing.T) {
 }
 
 func TestHandler_PUT_Returns405(t *testing.T) {
-	handler := metadata.Handler(testMetadata())
+	handler := mustHandler(t, testMetadata())
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/.well-known/oauth-protected-resource", http.NoBody)
 	w := httptest.NewRecorder()
 
@@ -105,7 +114,7 @@ func TestHandler_PUT_Returns405(t *testing.T) {
 }
 
 func TestHandler_DELETE_Returns405(t *testing.T) {
-	handler := metadata.Handler(testMetadata())
+	handler := mustHandler(t, testMetadata())
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodDelete, "/.well-known/oauth-protected-resource", http.NoBody)
 	w := httptest.NewRecorder()
 

@@ -4,6 +4,7 @@ package otel
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -33,10 +34,14 @@ func Setup(ctx context.Context, cfg Config) (*Provider, error) {
 		return &Provider{}, nil
 	}
 
-	exporter, err := otlptracehttp.New(ctx,
+	opts := []otlptracehttp.Option{
 		otlptracehttp.WithEndpointURL(cfg.Endpoint),
-		otlptracehttp.WithInsecure(), // Internal Docker network to Alloy
-	)
+	}
+	if strings.HasPrefix(cfg.Endpoint, "http://") {
+		opts = append(opts, otlptracehttp.WithInsecure())
+	}
+
+	exporter, err := otlptracehttp.New(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("otel exporter: %w", err)
 	}

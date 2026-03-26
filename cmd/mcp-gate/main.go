@@ -251,7 +251,11 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (*runResu
 	// Register routes (Go 1.22+ method-specific patterns)
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /.well-known/oauth-protected-resource", metadata.Handler(meta))
+	metadataHandler, err := metadata.Handler(meta)
+	if err != nil {
+		return nil, fmt.Errorf("metadata handler: %w", err)
+	}
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource", metadataHandler)
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if !authMW.IsReady() {

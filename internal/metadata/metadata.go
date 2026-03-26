@@ -3,7 +3,7 @@ package metadata
 
 import (
 	"encoding/json"
-	"log"
+	"fmt"
 	"net/http"
 )
 
@@ -21,10 +21,10 @@ type ProtectedResourceMetadata struct {
 // Handler returns an http.HandlerFunc that serves the given metadata as JSON.
 // The JSON is pre-marshaled at construction time to avoid repeated encoding and
 // to surface marshaling errors at startup rather than at request time.
-func Handler(meta ProtectedResourceMetadata) http.HandlerFunc {
+func Handler(meta ProtectedResourceMetadata) (http.HandlerFunc, error) {
 	data, err := json.Marshal(meta)
 	if err != nil {
-		log.Fatalf("metadata: failed to marshal: %v", err)
+		return nil, fmt.Errorf("metadata marshal: %w", err)
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -36,5 +36,5 @@ func Handler(meta ProtectedResourceMetadata) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "max-age=3600")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(data)
-	}
+	}, nil
 }

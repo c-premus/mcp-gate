@@ -1,0 +1,23 @@
+# Example Docker Compose for mcp-gate
+# Adapt to your environment and upstream MCP server.
+
+services:
+  mcp-gate:
+    image: cpremus/mcp-gate:latest
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    environment:
+      LISTEN_ADDR: "0.0.0.0:8080"
+      UPSTREAM_URL: "http://mcp-server:8000"
+      RESOURCE_URI: "https://mcp.example.com"
+      AUTHORIZATION_SERVER: "https://auth.example.com/application/o/mcp/"
+      JWKS_URI: "https://auth.example.com/application/o/mcp/jwks/"
+      EXPECTED_ISSUER: "https://auth.example.com/application/o/mcp/"
+      EXPECTED_AUDIENCE: "your-oauth-client-id"
+      LOG_LEVEL: "info"
+    healthcheck:
+      test: ["/mcp-gate", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
