@@ -6,6 +6,8 @@
 
 OAuth 2.1 reverse proxy for MCP servers. Implements [RFC 9728 Protected Resource Metadata](https://datatracker.ietf.org/doc/html/rfc9728) and JWT validation, delegating authentication to an external authorization server.
 
+**Read the blog post**: [I couldn't find an OAuth 2.1 proxy for MCP servers, so I built one](https://dev.to/cpremus/i-couldnt-find-an-oauth-21-proxy-for-mcp-servers-so-i-built-one-59nd)
+
 ## What it does
 
 `mcp-gate` sits in front of any MCP server and adds the [MCP Authorization specification](https://modelcontextprotocol.io/specification/draft/basic/authorization) endpoints required by Claude.ai custom connectors:
