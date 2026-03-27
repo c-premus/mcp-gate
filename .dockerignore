@@ -1,0 +1,13 @@
+.git
+.claude
+.forgejo
+.github
+memory-bank
+docs
+README.md
+CLAUDE.md
+.gitignore
+.devcontainer
+*.env
+renovate.json
+.golangci.yml
