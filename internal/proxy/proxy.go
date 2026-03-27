@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/c-premus/mcp-gate/internal/metrics"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // TransportConfig holds timeout and connection pool settings for the upstream transport.
@@ -52,19 +53,21 @@ type contextKey struct{}
 // It uses the Rewrite API (not Director) for safer hop-by-hop handling,
 // strips sensitive headers, and supports SSE streaming via FlushInterval: -1.
 func New(upstreamURL *url.URL, tc TransportConfig) *httputil.ReverseProxy {
+	baseTransport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   tc.DialTimeout,
+			KeepAlive: tc.KeepAlive,
+		}).DialContext,
+		TLSHandshakeTimeout:   tc.TLSHandshakeTimeout,
+		ResponseHeaderTimeout: tc.ResponseHeaderTimeout,
+		MaxIdleConns:          tc.MaxIdleConns,
+		MaxIdleConnsPerHost:   tc.MaxIdleConnsPerHost,
+		IdleConnTimeout:       tc.IdleConnTimeout,
+		ForceAttemptHTTP2:     true,
+	}
+
 	return &httputil.ReverseProxy{
-		Transport: &http.Transport{
-			DialContext: (&net.Dialer{
-				Timeout:   tc.DialTimeout,
-				KeepAlive: tc.KeepAlive,
-			}).DialContext,
-			TLSHandshakeTimeout:   tc.TLSHandshakeTimeout,
-			ResponseHeaderTimeout: tc.ResponseHeaderTimeout,
-			MaxIdleConns:          tc.MaxIdleConns,
-			MaxIdleConnsPerHost:   tc.MaxIdleConnsPerHost,
-			IdleConnTimeout:       tc.IdleConnTimeout,
-			ForceAttemptHTTP2:     true,
-		},
+		Transport: otelhttp.NewTransport(baseTransport),
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.SetURL(upstreamURL)
 			r.SetXForwarded()

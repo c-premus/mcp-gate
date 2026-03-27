@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/c-premus/mcp-gate/internal/proxy"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 // echoUpstream returns headers and URL received by the upstream, as JSON.
@@ -228,6 +230,46 @@ func TestDefaultTransportConfig(t *testing.T) {
 	}
 	if tc.MaxIdleConns != 100 {
 		t.Errorf("MaxIdleConns = %d, want 100", tc.MaxIdleConns)
+	}
+}
+
+func TestTracePropagationHeaders(t *testing.T) {
+	// Set up W3C TraceContext propagator (same as production otel.Setup)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]string{
+			"traceparent": r.Header.Get("Traceparent"),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer upstream.Close()
+
+	p := proxy.New(mustParseURL(t, upstream.URL), proxy.DefaultTransportConfig())
+	srv := httptest.NewServer(p)
+	defer srv.Close()
+
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/test", http.NoBody)
+	req.Header.Set("Traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var body map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if body["traceparent"] == "" {
+		t.Error("traceparent header not propagated to upstream")
+	}
+	// The trace ID should be preserved even if span ID changes
+	if !strings.Contains(body["traceparent"], "4bf92f3577b34da6a3ce929d0e0e4736") {
+		t.Errorf("trace ID not preserved: got %q", body["traceparent"])
 	}
 }
 
