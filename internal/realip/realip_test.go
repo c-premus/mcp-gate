@@ -43,8 +43,10 @@ func TestExtract_TrustedProxy_XRealIP(t *testing.T) {
 	}
 }
 
-func TestExtract_TrustedProxy_XRealIP_Priority(t *testing.T) {
-	// X-Real-IP should take priority over X-Forwarded-For.
+func TestExtract_TrustedProxy_XFF_Priority(t *testing.T) {
+	// X-Forwarded-For should take priority over X-Real-IP.
+	// Traefik resolves the trust chain into XFF but sets X-Real-IP
+	// to the direct peer (often a proxy IP, not the real client).
 	trusted := mustParseCIDRs(t, []string{"172.20.0.0/16"})
 
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
@@ -53,8 +55,25 @@ func TestExtract_TrustedProxy_XRealIP_Priority(t *testing.T) {
 	r.Header.Set("X-Forwarded-For", "198.51.100.1, 172.20.0.5")
 
 	got := Extract(r, trusted)
-	if got != "203.0.113.50" {
-		t.Errorf("Extract = %q, want 203.0.113.50 (X-Real-IP priority)", got)
+	if got != "198.51.100.1" {
+		t.Errorf("Extract = %q, want 198.51.100.1 (XFF priority over X-Real-IP)", got)
+	}
+}
+
+func TestExtract_TrustedProxy_XRealIP_IsTrusted(t *testing.T) {
+	// Real-world Traefik scenario: Traefik sets X-Real-IP to cloudflared's
+	// IP (a trusted proxy) and X-Forwarded-For to the resolved real client.
+	// X-Real-IP must be skipped because it's a trusted proxy address.
+	trusted := mustParseCIDRs(t, []string{"172.20.0.0/16"})
+
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
+	r.RemoteAddr = "172.20.0.10:54321"          // Traefik
+	r.Header.Set("X-Real-Ip", "172.20.0.13")    // cloudflared (trusted)
+	r.Header.Set("X-Forwarded-For", "160.79.106.119") // real client
+
+	got := Extract(r, trusted)
+	if got != "160.79.106.119" {
+		t.Errorf("Extract = %q, want 160.79.106.119 (X-Real-IP is trusted proxy, use XFF)", got)
 	}
 }
 

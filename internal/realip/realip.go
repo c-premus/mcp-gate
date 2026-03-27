@@ -15,8 +15,14 @@ import (
 
 // Extract returns the real client IP for the given request. When the
 // direct peer (RemoteAddr) falls within a trusted proxy CIDR, it checks
-// X-Real-IP and X-Forwarded-For headers. Otherwise it returns RemoteAddr
+// X-Forwarded-For and X-Real-IP headers. Otherwise it returns RemoteAddr
 // only, preventing IP spoofing via header manipulation.
+//
+// X-Forwarded-For is checked first because reverse proxies like Traefik
+// resolve the trust chain and place the real client IP there. X-Real-IP
+// is a fallback — some proxies (e.g. Traefik) set it to the direct peer
+// (a proxy IP), not the end client. In both cases, IPs that fall within
+// trusted proxy CIDRs are skipped to avoid returning a proxy address.
 func Extract(r *http.Request, trustedProxies []*net.IPNet) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -26,12 +32,6 @@ func Extract(r *http.Request, trustedProxies []*net.IPNet) string {
 	if len(trustedProxies) > 0 {
 		remoteIP := net.ParseIP(host)
 		if remoteIP != nil && ipInNets(remoteIP, trustedProxies) {
-			// X-Real-IP takes priority (single IP set by the proxy).
-			if ip := r.Header.Get("X-Real-Ip"); ip != "" {
-				if parsed := net.ParseIP(strings.TrimSpace(ip)); parsed != nil {
-					return parsed.String()
-				}
-			}
 			// X-Forwarded-For: walk right-to-left, skip trusted proxies.
 			// The first untrusted IP is the real client. This prevents
 			// spoofing via attacker-prepended entries at the front.
@@ -43,6 +43,16 @@ func Extract(r *http.Request, trustedProxies []*net.IPNet) string {
 					if parsed == nil {
 						continue
 					}
+					if !ipInNets(parsed, trustedProxies) {
+						return parsed.String()
+					}
+				}
+			}
+			// X-Real-IP fallback: only use if the value is not a
+			// trusted proxy. Some reverse proxies set X-Real-IP to
+			// the direct peer rather than the resolved client IP.
+			if ip := r.Header.Get("X-Real-Ip"); ip != "" {
+				if parsed := net.ParseIP(strings.TrimSpace(ip)); parsed != nil {
 					if !ipInNets(parsed, trustedProxies) {
 						return parsed.String()
 					}
