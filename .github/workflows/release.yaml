@@ -100,3 +100,42 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ env.DOCKERHUB_IMAGE }}
           short-description: "OAuth 2.1 reverse proxy for MCP servers"
+
+      - name: Clean up old GHCR versions
+        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55  # v5.0.0
+        with:
+          package-name: mcp-gate
+          package-type: container
+          min-versions-to-keep: 5
+          delete-only-untagged-versions: true
+
+      - name: Clean up old Docker Hub tags
+        run: |
+          # Get Docker Hub JWT token
+          TOKEN=$(curl -s -X POST "https://hub.docker.com/v2/users/login/" \
+            -H "Content-Type: application/json" \
+            -d '{"username":"${{ secrets.DOCKERHUB_USERNAME }}","password":"${{ secrets.DOCKERHUB_TOKEN }}"}' \
+            | jq -r .token)
+
+          # List all tags sorted by last_updated (oldest first)
+          TAGS=$(curl -s -H "Authorization: JWT ${TOKEN}" \
+            "https://hub.docker.com/v2/repositories/${{ env.DOCKERHUB_IMAGE }}/tags/?page_size=100&ordering=last_updated" \
+            | jq -r '.results[].name')
+
+          # Count total tags
+          TOTAL=$(echo "${TAGS}" | wc -l)
+          KEEP=5
+
+          if [ "${TOTAL}" -le "${KEEP}" ]; then
+            echo "Only ${TOTAL} tags exist, nothing to clean up"
+            exit 0
+          fi
+
+          # Tags to delete (oldest, excluding the newest $KEEP)
+          DELETE_TAGS=$(echo "${TAGS}" | head -n $((TOTAL - KEEP)))
+
+          for TAG in ${DELETE_TAGS}; do
+            echo "Deleting tag: ${TAG}"
+            curl -s -X DELETE -H "Authorization: JWT ${TOKEN}" \
+              "https://hub.docker.com/v2/repositories/${{ env.DOCKERHUB_IMAGE }}/tags/${TAG}/"
+          done
