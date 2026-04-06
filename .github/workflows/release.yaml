@@ -103,39 +103,76 @@ jobs:
 
       - name: Clean up old GHCR versions
         uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55  # v5.0.0
+        continue-on-error: true
         with:
           package-name: mcp-gate
           package-type: container
           min-versions-to-keep: 5
           delete-only-untagged-versions: true
 
-      - name: Clean up old Docker Hub tags
+      - name: Clean up old Docker Hub tags and images
+        continue-on-error: true
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          # Get Docker Hub JWT token
-          TOKEN=$(curl -s -X POST "https://hub.docker.com/v2/users/login/" \
-            -H "Content-Type: application/json" \
-            -d '{"username":"${{ secrets.DOCKERHUB_USERNAME }}","password":"${{ secrets.DOCKERHUB_TOKEN }}"}' \
-            | jq -r .token)
-
-          # List all tags sorted by last_updated (oldest first)
-          TAGS=$(curl -s -H "Authorization: JWT ${TOKEN}" \
-            "https://hub.docker.com/v2/repositories/${{ env.DOCKERHUB_IMAGE }}/tags/?page_size=100&ordering=last_updated" \
-            | jq -r '.results[].name')
-
-          # Count total tags
-          TOTAL=$(echo "${TAGS}" | wc -l)
+          set -uo pipefail
+          NAMESPACE="cpremus"
+          IMAGE="mcp-gate"
           KEEP=5
 
-          if [ "${TOTAL}" -le "${KEEP}" ]; then
-            echo "Only ${TOTAL} tags exist, nothing to clean up"
+          # Authenticate — fail fast with diagnostic output
+          RESPONSE=$(curl -s -w "\n%{http_code}" "https://hub.docker.com/v2/users/login/" \
+            -H "Content-Type: application/json" \
+            -d "{\"username\":\"${DOCKERHUB_USERNAME}\",\"password\":\"${DOCKERHUB_TOKEN}\"}")
+          HTTP_CODE=$(echo "${RESPONSE}" | tail -1)
+          BODY=$(echo "${RESPONSE}" | sed '$d')
+
+          if [ "${HTTP_CODE}" -ne 200 ]; then
+            echo "::error::Docker Hub login failed (HTTP ${HTTP_CODE})"
+            exit 1
+          fi
+          HUB_TOKEN=$(echo "${BODY}" | jq -r .token)
+
+          # Step 1: Delete old tags (keeps latest KEEP by last_updated)
+          echo "Fetching tags..."
+          TAGS=$(curl -sf "https://hub.docker.com/v2/repositories/${NAMESPACE}/${IMAGE}/tags/?page_size=100" \
+            -H "Authorization: Bearer ${HUB_TOKEN}" \
+            | jq -r "[.results | sort_by(.last_updated) | reverse | .[${KEEP}:][] | .name] | .[]") || true
+
+          if [ -n "${TAGS}" ]; then
+            for TAG in ${TAGS}; do
+              echo "Removing tag ${IMAGE}:${TAG}"
+              curl -sf -X DELETE "https://hub.docker.com/v2/repositories/${NAMESPACE}/${IMAGE}/tags/${TAG}/" \
+                -H "Authorization: Bearer ${HUB_TOKEN}" || echo "  Warning: failed to delete tag ${TAG}"
+            done
+          else
+            echo "No old tags to remove (≤${KEEP} tags)"
+          fi
+
+          # Step 2: Delete inactive images via Advanced Image Management API
+          # status=inactive returns manifests with no tags AND not referenced by any tagged manifest
+          echo "Fetching inactive images..."
+          DIGESTS=$(curl -sf \
+            "https://hub.docker.com/v2/namespaces/${NAMESPACE}/repositories/${IMAGE}/images?status=inactive&page_size=100&ordering=-last_activity" \
+            -H "Authorization: Bearer ${HUB_TOKEN}" \
+            | jq -r '[.results[].digest] | .[]') || true
+
+          if [ -z "${DIGESTS}" ]; then
+            echo "No inactive images to clean up"
             exit 0
           fi
 
-          # Tags to delete (oldest, excluding the newest $KEEP)
-          DELETE_TAGS=$(echo "${TAGS}" | head -n $((TOTAL - KEEP)))
+          # Bulk delete by digest — actually reclaims storage
+          MANIFESTS=$(echo "${DIGESTS}" \
+            | jq -Rsc '[split("\n") | .[] | select(length > 0) | {repository: "'"${IMAGE}"'", digest: .}]')
+          COUNT=$(echo "${DIGESTS}" | grep -c . || true)
 
-          for TAG in ${DELETE_TAGS}; do
-            echo "Deleting tag: ${TAG}"
-            curl -s -X DELETE -H "Authorization: JWT ${TOKEN}" \
-              "https://hub.docker.com/v2/repositories/${{ env.DOCKERHUB_IMAGE }}/tags/${TAG}/"
-          done
+          echo "Deleting ${COUNT} inactive image(s)"
+          curl -sf -X POST \
+            "https://hub.docker.com/v2/namespaces/${NAMESPACE}/repositories/${IMAGE}/images/delete" \
+            -H "Authorization: Bearer ${HUB_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"manifests\": ${MANIFESTS}, \"dry_run\": false}" || echo "Warning: bulk delete failed"
+
+          echo "Docker Hub cleanup complete"
