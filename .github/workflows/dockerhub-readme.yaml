@@ -1,0 +1,24 @@
+name: Docker Hub README
+
+on:
+  push:
+    branches: [main]
+    paths: [README.md]
+
+permissions:
+  contents: read
+
+jobs:
+  update:
+    name: Update Docker Hub Description
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Update Docker Hub description
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa  # v5.0.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: cpremus/mcp-gate
+          short-description: "OAuth 2.1 reverse proxy for MCP servers"
