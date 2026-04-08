@@ -209,6 +209,19 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 			return
 		}
 
+		// Reject tokens without a subject — needed for audit trail integrity
+		if claims.Subject == "" {
+			slog.Warn("token rejected",
+				"reason", "missing_sub",
+				"client_ip", clientIP,
+				"jti", claims.ID,
+			)
+			metrics.AuthValidationsTotal.WithLabelValues("invalid_token").Inc()
+			span.SetAttributes(attribute.String("auth.outcome", "missing_sub"))
+			m.writeInvalidTokenError(w)
+			return
+		}
+
 		metrics.AuthValidationsTotal.WithLabelValues("valid").Inc()
 		span.SetAttributes(
 			attribute.String("auth.outcome", "valid"),

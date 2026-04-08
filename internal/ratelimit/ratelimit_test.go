@@ -291,6 +291,55 @@ func TestCleanup_EvictsStaleEntries(t *testing.T) {
 	}
 }
 
+func TestMiddleware_RejectsWhenMapFull(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	rl := ratelimit.New(ctx, ratelimit.Config{
+		RPS:             100,
+		Burst:           10,
+		CleanupInterval: time.Hour,
+		StaleAfter:      time.Hour,
+		MaxClients:      3,
+	})
+	defer rl.Stop()
+
+	handler := rl.Middleware(okHandler())
+
+	// Fill the map with 3 unique IPs
+	for i := range 3 {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
+		req.RemoteAddr = fmt.Sprintf("203.0.113.%d:12345", i+1)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("IP %d: status = %d, want 200", i+1, w.Code)
+		}
+	}
+
+	if rl.ClientCount() != 3 {
+		t.Fatalf("clients = %d, want 3", rl.ClientCount())
+	}
+
+	// 4th unique IP should be rejected
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
+	req.RemoteAddr = "203.0.113.99:12345"
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("4th IP: status = %d, want 429", w.Code)
+	}
+
+	// Existing IP should still work
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
+	req.RemoteAddr = "203.0.113.1:12345"
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("existing IP: status = %d, want 200", w.Code)
+	}
+}
+
 // --- Concurrent Limiter tests ---
 
 func TestConcurrentLimiter_AllowsUnderLimit(t *testing.T) {

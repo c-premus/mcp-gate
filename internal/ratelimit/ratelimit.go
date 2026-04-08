@@ -26,6 +26,7 @@ type Config struct {
 	CleanupInterval time.Duration // How often to evict stale entries
 	StaleAfter      time.Duration // Evict entries not seen for this duration
 	TrustedProxies  []*net.IPNet  // For realip.Extract()
+	MaxClients      int           // Max tracked IPs (0 = default 100,000)
 }
 
 // entry tracks a per-IP rate limiter and last-seen time.
@@ -42,9 +43,14 @@ type Limiter struct {
 	cancel  func()
 }
 
+const defaultMaxClients = 100_000
+
 // New creates a per-IP rate limiter and starts a background cleanup goroutine.
 // The cleanup goroutine stops when ctx is cancelled or Stop() is called.
 func New(ctx context.Context, cfg Config) *Limiter {
+	if cfg.MaxClients <= 0 {
+		cfg.MaxClients = defaultMaxClients
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	l := &Limiter{
 		clients: make(map[string]*entry),
@@ -80,19 +86,22 @@ func (l *Limiter) cleanup(ctx context.Context) {
 	}
 }
 
-func (l *Limiter) getLimiter(ip string) *rate.Limiter {
+func (l *Limiter) getLimiter(ip string) (*rate.Limiter, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	e, exists := l.clients[ip]
 	if !exists {
+		if len(l.clients) >= l.cfg.MaxClients {
+			return nil, false
+		}
 		e = &entry{
 			limiter: rate.NewLimiter(rate.Limit(l.cfg.RPS), l.cfg.Burst),
 		}
 		l.clients[ip] = e
 	}
 	e.lastSeen = time.Now()
-	return e.limiter
+	return e.limiter, true
 }
 
 // Middleware returns an HTTP middleware that enforces per-IP rate limits.
@@ -100,7 +109,20 @@ func (l *Limiter) getLimiter(ip string) *rate.Limiter {
 func (l *Limiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clientIP := realip.Extract(r, l.cfg.TrustedProxies)
-		limiter := l.getLimiter(clientIP)
+		limiter, ok := l.getLimiter(clientIP)
+
+		if !ok {
+			metrics.RateLimitedTotal.Inc()
+			slog.Warn("rate limiter map full, rejecting new IP",
+				"client_ip", clientIP,
+				"tracked_clients", l.cfg.MaxClients,
+			)
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Retry-After", "5")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":"rate_limit_exceeded","error_description":"Too many requests"}`))
+			return
+		}
 
 		if !limiter.Allow() {
 			metrics.RateLimitedTotal.Inc()

@@ -556,6 +556,7 @@ func TestMissingNbfAccepted(t *testing.T) {
 	mapClaims := jwt.MapClaims{
 		"iss":   testIssuer,
 		"aud":   testAudience,
+		"sub":   "test-user",
 		"exp":   time.Now().Add(time.Hour).Unix(),
 		"iat":   time.Now().Unix(),
 		"scope": "openid profile",
@@ -688,6 +689,50 @@ func TestErrorResponseNoInternalDetails(t *testing.T) {
 	}
 	if strings.Contains(body, "keyfunc") {
 		t.Errorf("error body leaks JWKS implementation detail: %s", body)
+	}
+}
+
+func TestMissingSubjectRejected(t *testing.T) {
+	ts := newTestSetup(t)
+	defer ts.Close()
+
+	mw := newMiddleware(t, ts, []string{"openid"})
+	// Use MapClaims to omit sub entirely
+	mapClaims := jwt.MapClaims{
+		"iss":   testIssuer,
+		"aud":   testAudience,
+		"exp":   time.Now().Add(time.Hour).Unix(),
+		"iat":   time.Now().Unix(),
+		"scope": "openid profile",
+	}
+	token := signToken(t, ts.privKey, mapClaims, map[string]any{"typ": "at+jwt"})
+
+	w := doRequest(t, mw, "Bearer "+token)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 (missing sub), got %d: %s", w.Code, w.Body.String())
+	}
+
+	var body map[string]string
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body["error"] != "invalid_token" {
+		t.Errorf("error = %q, want invalid_token", body["error"])
+	}
+}
+
+func TestEmptySubjectRejected(t *testing.T) {
+	ts := newTestSetup(t)
+	defer ts.Close()
+
+	mw := newMiddleware(t, ts, []string{"openid"})
+	claims := validClaims()
+	claims.Subject = ""
+	token := signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
+
+	w := doRequest(t, mw, "Bearer "+token)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 (empty sub), got %d: %s", w.Code, w.Body.String())
 	}
 }
 
