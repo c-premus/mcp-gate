@@ -1,0 +1,118 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    # Tier 1 — Bugs & correctness
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - gosec
+    - bodyclose
+    - nilerr
+    - nilnesserr
+    - noctx
+    - spancheck
+
+    # Tier 2 — Code quality & style
+    - revive
+    - gocritic
+    - unconvert
+    - unparam
+    - misspell
+    - errorlint
+    - sloglint
+    - promlinter
+    - modernize
+
+    # Tier 3 — Nice to have
+    - gocyclo
+    - nakedret
+    - perfsprint
+    - recvcheck
+    - loggercheck
+    - ineffassign
+
+  exclusions:
+    paths:
+      - vendor
+
+    rules:
+      # internal/metrics is not a stdlib collision — runtime/metrics exists
+      # but "metrics" is a standard name for Prometheus metric packages.
+      - path: "internal/metrics/"
+        linters: [revive]
+        text: "var-naming"
+      # run() returns *runResult for architectural consistency (ready channel
+      # + return value) even though callers currently use only the channel.
+      - path: "cmd/mcp-gate/main\\.go"
+        linters: [unparam]
+        text: "run - result"
+
+  settings:
+    gocyclo:
+      min-complexity: 30
+
+    nakedret:
+      max-func-lines: 30
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+      settings:
+        hugeParam:
+          sizeThreshold: 256
+      disabled-checks:
+        # sprintfQuotedString suggests %q but our auth.go uses fmt.Sprintf
+        # for RFC 7235 WWW-Authenticate headers where "value" quoting is
+        # handled by sanitizeQuotedString — Go %q escaping is wrong here.
+        - sprintfQuotedString
+
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+        - name: increment-decrement
+        - name: var-naming
+        - name: range
+        - name: receiver-naming
+        - name: indent-error-flow
+        - name: empty-block
+        - name: superfluous-else
+        - name: unreachable-code
+        - name: redefines-builtin-id
+
+    sloglint:
+      kv-only: true
+      args-on-sep-lines: false
+
+    perfsprint:
+      err-error: true
+      errorf: true
+      sprintf1: true
+
+    gosec:
+      excludes:
+        # We intentionally don't set WriteTimeout for SSE streaming
+        - G112
+        # G704: SSRF via taint — healthcheck URL is built from operator-controlled
+        # LISTEN_ADDR config, not user input. Test URLs are also safe.
+        - G704
+        # G706: Log injection via taint — slog structured logging JSON-encodes all
+        # values as key-value pairs, never interpolating into log message strings.
+        # This makes log injection via user-controlled fields (JWT claims, request
+        # paths, IPs) a non-issue.
+        - G706
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
