@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -103,6 +104,41 @@ func TestExtract_TrustedProxy_XFF_RightToLeft(t *testing.T) {
 	got := Extract(r, trusted)
 	if got != "203.0.113.50" {
 		t.Errorf("Extract = %q, want 203.0.113.50", got)
+	}
+}
+
+func TestExtract_TrustedProxy_XFF_MultipleHeaders(t *testing.T) {
+	// Some proxies emit multiple X-Forwarded-For header instances instead of
+	// a single comma-joined value. Header.Values should collect all of them
+	// and the right-to-left walk should see the full chain.
+	trusted := mustParseCIDRs(t, []string{"172.20.0.0/16"})
+
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
+	r.RemoteAddr = "172.20.0.1:54321"
+	// Two separate XFF headers: real client in the first, trusted proxies in the second.
+	r.Header.Add("X-Forwarded-For", "203.0.113.50")
+	r.Header.Add("X-Forwarded-For", "172.20.0.5, 172.20.0.6")
+
+	got := Extract(r, trusted)
+	if got != "203.0.113.50" {
+		t.Errorf("Extract = %q, want 203.0.113.50", got)
+	}
+}
+
+func TestExtract_TrustedProxy_XFF_MultipleHeaders_SpoofPrevention(t *testing.T) {
+	// Attacker injects a spoofed first XFF header before reaching a proxy that
+	// then appends the real client in a second XFF header. Right-to-left walk
+	// must see "spoofed, real-client, trusted-proxy" and stop at real-client.
+	trusted := mustParseCIDRs(t, []string{"172.20.0.0/16"})
+
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
+	r.RemoteAddr = "172.20.0.1:54321"
+	r.Header.Add("X-Forwarded-For", "1.2.3.4") // attacker
+	r.Header.Add("X-Forwarded-For", "203.0.113.50, 172.20.0.5")
+
+	got := Extract(r, trusted)
+	if got != "203.0.113.50" {
+		t.Errorf("Extract = %q, want 203.0.113.50 (not spoofed 1.2.3.4)", got)
 	}
 }
 
@@ -295,5 +331,45 @@ func TestParseCIDRs_InvalidCIDR(t *testing.T) {
 	_, err := ParseCIDRs([]string{"172.20.0.0/99"})
 	if err == nil {
 		t.Fatal("expected error for invalid CIDR")
+	}
+}
+
+func TestParseCIDRs_RejectsIPv4CatchAll(t *testing.T) {
+	_, err := ParseCIDRs([]string{"0.0.0.0/0"})
+	if err == nil {
+		t.Fatal("expected error for 0.0.0.0/0 catch-all")
+	}
+	if !strings.Contains(err.Error(), "catch-all") {
+		t.Errorf("error %q should mention catch-all", err)
+	}
+}
+
+func TestParseCIDRs_RejectsIPv6CatchAll(t *testing.T) {
+	_, err := ParseCIDRs([]string{"::/0"})
+	if err == nil {
+		t.Fatal("expected error for ::/0 catch-all")
+	}
+	if !strings.Contains(err.Error(), "catch-all") {
+		t.Errorf("error %q should mention catch-all", err)
+	}
+}
+
+func TestParseCIDRs_RejectsCatchAllAmongValid(t *testing.T) {
+	// Even one catch-all among otherwise-valid entries must be rejected.
+	_, err := ParseCIDRs([]string{"172.20.0.0/16", "0.0.0.0/0"})
+	if err == nil {
+		t.Fatal("expected error when catch-all present in list")
+	}
+}
+
+func TestParseCIDRs_AcceptsNarrowCIDRs(t *testing.T) {
+	// /1 is broad but still narrower than /0 — must be accepted.
+	// Narrow internal ranges are the common case.
+	nets, err := ParseCIDRs([]string{"128.0.0.0/1", "172.20.0.0/16", "10.0.0.0/8"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(nets) != 3 {
+		t.Errorf("expected 3 nets, got %d", len(nets))
 	}
 }

@@ -35,7 +35,13 @@ func Extract(r *http.Request, trustedProxies []*net.IPNet) string {
 			// X-Forwarded-For: walk right-to-left, skip trusted proxies.
 			// The first untrusted IP is the real client. This prevents
 			// spoofing via attacker-prepended entries at the front.
-			if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			//
+			// Some proxies emit XFF as multiple separate header instances
+			// rather than a single comma-joined value. Header.Values()
+			// collects all of them in arrival order so the right-to-left
+			// walk sees the full chain.
+			if xffs := r.Header.Values("X-Forwarded-For"); len(xffs) > 0 {
+				xff := strings.Join(xffs, ",")
 				ips := strings.Split(xff, ",")
 				for i := len(ips) - 1; i >= 0; i-- {
 					candidate := strings.TrimSpace(ips[i])
@@ -105,6 +111,16 @@ func ParseCIDRs(cidrs []string) ([]*net.IPNet, error) {
 		_, cidr, err := net.ParseCIDR(entry)
 		if err != nil {
 			return nil, fmt.Errorf("invalid CIDR: %q: %w", entry, err)
+		}
+		// Reject catch-all CIDRs (0.0.0.0/0 and ::/0). Trusting every peer
+		// defeats the point of TRUSTED_PROXIES and enables IP spoofing via
+		// client-supplied X-Forwarded-For / X-Real-IP headers.
+		if ones, _ := cidr.Mask.Size(); ones == 0 {
+			return nil, fmt.Errorf(
+				"refusing catch-all CIDR %q in TRUSTED_PROXIES: "+
+					"would trust X-Forwarded-For from every peer and enable IP spoofing",
+				entry,
+			)
 		}
 		nets = append(nets, cidr)
 	}
