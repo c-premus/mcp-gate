@@ -10,6 +10,28 @@ import (
 	"github.com/c-premus/mcp-gate/internal/realip"
 )
 
+// maxLoggedFieldBytes bounds logged request-derived strings to prevent
+// attacker-controlled log amplification via oversized paths or User-Agent
+// headers. 512 B is well above typical values while still capping worst-case
+// log line size.
+const maxLoggedFieldBytes = 512
+
+// truncate returns s unchanged if within maxBytes, otherwise truncates at a
+// safe UTF-8 boundary and appends a marker. The cap is a byte cap, not a rune
+// cap, to make worst-case log line size predictable.
+func truncate(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	// Back off to the last valid UTF-8 start byte so we never emit a
+	// truncated multi-byte sequence.
+	cut := maxBytes
+	for cut > 0 && s[cut]&0xC0 == 0x80 {
+		cut--
+	}
+	return s[:cut] + "…(truncated)"
+}
+
 // RouteClassifier maps a request path to a bounded route label for metrics.
 func RouteClassifier(r *http.Request) string {
 	switch r.URL.Path {
@@ -82,11 +104,11 @@ func Middleware(next http.Handler, trustedProxies []*net.IPNet) http.Handler {
 
 		slog.Info("request",
 			"method", r.Method,
-			"path", r.URL.Path,
+			"path", truncate(r.URL.Path, maxLoggedFieldBytes),
 			"status", rec.statusCode,
 			"duration_ms", int(duration*1000),
 			"client_ip", realip.Extract(r, trustedProxies),
-			"user_agent", r.Header.Get("User-Agent"),
+			"user_agent", truncate(r.Header.Get("User-Agent"), maxLoggedFieldBytes),
 		)
 	})
 }

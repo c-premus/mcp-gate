@@ -113,7 +113,9 @@ func (l *Limiter) Middleware(next http.Handler) http.Handler {
 
 		if !ok {
 			metrics.RateLimitedTotal.Inc()
-			slog.Warn("rate limiter map full, rejecting new IP",
+			// Debug level: under attack this fires per request. Alert on the
+			// mcpgate_rate_limited_total counter instead of log volume.
+			slog.Debug("rate limiter map full, rejecting new IP",
 				"client_ip", clientIP,
 				"tracked_clients", l.cfg.MaxClients,
 			)
@@ -126,7 +128,8 @@ func (l *Limiter) Middleware(next http.Handler) http.Handler {
 
 		if !limiter.Allow() {
 			metrics.RateLimitedTotal.Inc()
-			slog.Warn("rate limited",
+			// Debug level: see comment above on log amplification.
+			slog.Debug("rate limited",
 				"client_ip", clientIP,
 				"path", r.URL.Path,
 			)
@@ -177,7 +180,8 @@ func (cl *ConcurrentLimiter) Middleware(next http.Handler) http.Handler {
 		if cl.total >= cl.maxTotal || cl.active[clientIP] >= cl.maxPerIP {
 			cl.mu.Unlock()
 			metrics.ConcurrentLimitedTotal.Inc()
-			slog.Warn("concurrent request limit exceeded",
+			// Debug level: alert on mcpgate_concurrent_limited_total instead.
+			slog.Debug("concurrent request limit exceeded",
 				"client_ip", clientIP,
 				"path", r.URL.Path,
 			)
