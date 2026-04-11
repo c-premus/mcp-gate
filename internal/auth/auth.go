@@ -57,12 +57,17 @@ type Middleware struct {
 
 // NewMiddleware creates a new auth middleware. It performs a blocking JWKS fetch
 // on startup and returns an error if the initial fetch fails.
+//
+// It also spawns a background goroutine bound to cfg.Ctx that polls the JWKS
+// storage to update observability metrics (key count and last-key-change
+// timestamp). The goroutine exits when cfg.Ctx is cancelled.
 func NewMiddleware(cfg Config) (*Middleware, error) {
 	// Build per-URL storage with blocking initial fetch
 	store, err := jwkset.NewStorageFromHTTP(cfg.JWKSURI, jwkset.HTTPClientStorageOptions{
 		Ctx:             cfg.Ctx,
 		RefreshInterval: cfg.RefreshInterval,
 		RefreshErrorHandler: func(ctx context.Context, err error) {
+			metrics.JWKSRefreshErrorsTotal.Inc()
 			slog.Error("JWKS refresh failed", "error", err, "jwks_uri", cfg.JWKSURI)
 		},
 		// NoErrorReturnFirstHTTPReq defaults to false: blocks and returns error on failure
@@ -92,6 +97,20 @@ func NewMiddleware(cfg Config) (*Middleware, error) {
 	keys, _ := client.KeyReadAll(context.Background())
 	slog.Info("JWKS loaded", "key_count", len(keys), "jwks_uri", cfg.JWKSURI)
 
+	// Prime the key-count gauge on startup. The polling goroutine below keeps
+	// it updated over time.
+	metrics.JWKSKeysLoaded.Set(float64(len(keys)))
+	metrics.JWKSLastKeyChangeTimestamp.Set(float64(time.Now().Unix()))
+
+	// Start the metrics polling goroutine. Sample at half the refresh
+	// interval (Nyquist) but never faster than every 5 minutes to keep
+	// background load trivial.
+	pollInterval := min(cfg.RefreshInterval/2, 5*time.Minute)
+	if pollInterval <= 0 {
+		pollInterval = time.Minute
+	}
+	go pollJWKSMetrics(cfg.Ctx, client, initialKeyFingerprint(keys), pollInterval)
+
 	parser := jwt.NewParser(
 		jwt.WithValidMethods([]string{"RS256"}),
 		jwt.WithIssuer(cfg.ExpectedIssuer),
@@ -107,6 +126,53 @@ func NewMiddleware(cfg Config) (*Middleware, error) {
 		cfg:     cfg,
 		parser:  parser,
 	}, nil
+}
+
+// pollJWKSMetrics periodically reads the JWKS storage and updates the
+// mcpgate_jwks_keys_loaded gauge. When the set of key IDs changes relative
+// to the previous poll, it bumps mcpgate_jwks_last_key_change_timestamp.
+// The goroutine exits when ctx is cancelled.
+func pollJWKSMetrics(ctx context.Context, storage jwkset.Storage, lastFingerprint string, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	prev := lastFingerprint
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			keys, err := storage.KeyReadAll(ctx)
+			if err != nil {
+				// Errors reading storage are distinct from refresh errors —
+				// the refresh goroutine reports its own failures via
+				// RefreshErrorHandler. Log at debug to avoid noise.
+				slog.Debug("JWKS metrics poll: storage read failed", "error", err)
+				continue
+			}
+			metrics.JWKSKeysLoaded.Set(float64(len(keys)))
+			fp := initialKeyFingerprint(keys)
+			if fp != prev {
+				metrics.JWKSLastKeyChangeTimestamp.Set(float64(time.Now().Unix()))
+				prev = fp
+			}
+		}
+	}
+}
+
+// initialKeyFingerprint returns a deterministic string derived from the sorted
+// list of key IDs. It is used to detect changes in the key set between polls
+// without hashing the key material itself.
+func initialKeyFingerprint(keys []jwkset.JWK) string {
+	if len(keys) == 0 {
+		return ""
+	}
+	kids := make([]string, 0, len(keys))
+	for i := range keys {
+		kids = append(kids, keys[i].Marshal().KID)
+	}
+	slices.Sort(kids)
+	return strings.Join(kids, ",")
 }
 
 // IsReady returns true if the JWKS store has at least one key loaded.

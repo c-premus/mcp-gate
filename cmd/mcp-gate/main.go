@@ -255,13 +255,9 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (*runResu
 		return nil, fmt.Errorf("auth middleware init: %w", err)
 	}
 
-	// Record loaded JWKS key count
-	keyCount, err := authMW.KeyCount()
-	if err == nil {
-		metrics.JWKSKeysLoaded.Set(float64(keyCount))
-	}
-
 	// Create reverse proxy with configurable upstream timeout
+	// (JWKS key count metric is primed inside NewMiddleware and kept
+	// current by the background polling goroutine it spawns.)
 	tc := proxy.DefaultTransportConfig()
 	tc.ResponseHeaderTimeout = cfg.upstreamTimeout
 	proxyHandler := proxy.New(cfg.upstreamURL, tc)

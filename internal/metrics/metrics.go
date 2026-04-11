@@ -54,7 +54,29 @@ var (
 
 	JWKSKeysLoaded = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "mcpgate_jwks_keys_loaded",
-		Help: "Number of cached JWKS keys.",
+		Help: "Number of cached JWKS keys. Updated on each poll of the JWKS storage.",
+	})
+
+	// JWKSRefreshErrorsTotal is incremented by the jwkset RefreshErrorHandler.
+	// Primary alerting signal for JWKS refresh failures — alert on a non-zero
+	// increase over a window longer than the refresh interval.
+	JWKSRefreshErrorsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "mcpgate_jwks_refresh_errors_total",
+		Help: "Total JWKS refresh failures reported by the refresh goroutine.",
+	})
+
+	// JWKSLastKeyChangeTimestamp records the Unix seconds time at which the
+	// polling goroutine last observed a change in the cached key set (set
+	// membership, not just count). jwkset does not expose a refresh-success
+	// callback, so this is inferred by comparing polled key IDs.
+	//
+	// Note: this does NOT measure every successful refresh — a refresh that
+	// returns the identical key set will not bump this timestamp. It is a
+	// correctness signal, not a liveness signal. Use mcpgate_jwks_refresh_errors_total
+	// for liveness alerting.
+	JWKSLastKeyChangeTimestamp = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "mcpgate_jwks_last_key_change_timestamp_seconds",
+		Help: "Unix seconds of the last observed change in the JWKS key set.",
 	})
 
 	RateLimitedTotal = promauto.NewCounter(prometheus.CounterOpts{

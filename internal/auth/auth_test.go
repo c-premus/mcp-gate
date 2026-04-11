@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/c-premus/mcp-gate/internal/auth"
+	"github.com/c-premus/mcp-gate/internal/metrics"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 const (
@@ -487,6 +489,28 @@ func TestIsReady(t *testing.T) {
 
 	if !mw.IsReady() {
 		t.Error("expected IsReady() to return true after successful JWKS fetch")
+	}
+}
+
+func TestJWKSMetricsPrimedOnStartup(t *testing.T) {
+	// NewMiddleware should prime the JWKS metrics on successful startup:
+	// the key-count gauge should be non-zero and the last-key-change
+	// timestamp should be roughly "now".
+	ts := newTestSetup(t)
+	defer ts.Close()
+
+	before := time.Now().Unix()
+	_ = newMiddleware(t, ts, []string{"openid"})
+	after := time.Now().Unix()
+
+	keyCount := testutil.ToFloat64(metrics.JWKSKeysLoaded)
+	if keyCount < 1 {
+		t.Errorf("JWKSKeysLoaded = %f, want >= 1 after startup", keyCount)
+	}
+
+	ts2 := testutil.ToFloat64(metrics.JWKSLastKeyChangeTimestamp)
+	if ts2 < float64(before) || ts2 > float64(after)+1 {
+		t.Errorf("JWKSLastKeyChangeTimestamp = %f, want in [%d, %d]", ts2, before, after)
 	}
 }
 
