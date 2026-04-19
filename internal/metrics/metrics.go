@@ -8,6 +8,7 @@ package metrics
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -140,7 +141,7 @@ func (s *Server) Addr() string {
 // Serve starts serving metrics. It blocks until the server is shut down.
 func (s *Server) Serve() error {
 	slog.Info("metrics server starting", "addr", s.Addr())
-	if err := s.server.Serve(s.ln); err != http.ErrServerClosed {
+	if err := s.server.Serve(s.ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil

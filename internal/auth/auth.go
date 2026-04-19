@@ -105,7 +105,13 @@ func NewMiddleware(cfg Config) (*Middleware, error) {
 		return nil, fmt.Errorf("keyfunc init: %w", err)
 	}
 
-	keys, _ := client.KeyReadAll(context.Background())
+	keys, err := client.KeyReadAll(context.Background())
+	if err != nil {
+		// Non-fatal: the initial NewStorageFromHTTP fetch already succeeded,
+		// so at this point an error from the aggregating client is unexpected.
+		// Log so startup posture stays visible, then continue with zero keys.
+		slog.Warn("JWKS post-init read failed", "error", err, "jwks_uri", cfg.JWKSURI)
+	}
 	slog.Info("JWKS loaded", "key_count", len(keys), "jwks_uri", cfg.JWKSURI)
 
 	// Prime the key-count gauge on startup. The polling goroutine below keeps
@@ -186,19 +192,12 @@ func initialKeyFingerprint(keys []jwkset.JWK) string {
 	return strings.Join(kids, ",")
 }
 
-// IsReady returns true if the JWKS store has at least one key loaded.
-func (m *Middleware) IsReady() bool {
-	keys, err := m.storage.KeyReadAll(context.Background())
+// IsReady returns true if the JWKS store has at least one key loaded. The
+// caller should pass a request-scoped context so the underlying storage read
+// is bounded by the caller's deadline.
+func (m *Middleware) IsReady(ctx context.Context) bool {
+	keys, err := m.storage.KeyReadAll(ctx)
 	return err == nil && len(keys) > 0
-}
-
-// KeyCount returns the number of keys currently loaded in the JWKS store.
-func (m *Middleware) KeyCount() (int, error) {
-	keys, err := m.storage.KeyReadAll(context.Background())
-	if err != nil {
-		return 0, err
-	}
-	return len(keys), nil
 }
 
 // Handler returns an HTTP middleware that validates JWT Bearer tokens.
@@ -318,11 +317,32 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 	})
 }
 
-// sanitizeQuotedString escapes characters for use in RFC 7235 quoted-string values.
+// sanitizeQuotedString escapes characters for use in RFC 7235 quoted-string
+// values. In addition to escaping backslash and double-quote (the two
+// characters that carry meaning inside a quoted-string), it strips CR, LF,
+// NUL, and other C0 control bytes (< 0x20 except tab) as defense-in-depth
+// against header-splitting if a caller ever reflects untrusted input here.
+// Current call sites pass operator-controlled config only; this keeps the
+// function safe for future reuse.
 func sanitizeQuotedString(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	return s
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == '\\':
+			b.WriteString(`\\`)
+		case c == '"':
+			b.WriteString(`\"`)
+		case c == '\t':
+			b.WriteByte(c)
+		case c < 0x20 || c == 0x7f:
+			// Skip C0 controls and DEL — unrepresentable in a header value.
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
 }
 
 // writeNoTokenError writes a 401 response for missing/malformed Bearer token.

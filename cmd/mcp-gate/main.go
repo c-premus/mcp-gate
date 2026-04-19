@@ -30,6 +30,33 @@ import (
 // version is set at build time via -ldflags.
 var version = "dev"
 
+// runHealthcheck performs a local HTTP GET against /healthz and returns a
+// process exit code. It is split out so defer can run before process exit.
+func runHealthcheck() int {
+	addr := os.Getenv("LISTEN_ADDR")
+	if addr == "" {
+		addr = "0.0.0.0:8080"
+	}
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return 1
+	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://localhost:"+port+"/healthz", http.NoBody)
+	if err != nil {
+		return 1
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 1
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return 1
+	}
+	return 0
+}
+
 // runConfig holds all configuration needed by run().
 type runConfig struct {
 	listenAddr          string
@@ -71,28 +98,7 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "-health", "healthcheck":
-			addr := os.Getenv("LISTEN_ADDR")
-			if addr == "" {
-				addr = "0.0.0.0:8080"
-			}
-			_, port, err := net.SplitHostPort(addr)
-			if err != nil {
-				os.Exit(1)
-			}
-			req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://localhost:"+port+"/healthz", http.NoBody)
-			if err != nil {
-				os.Exit(1)
-			}
-			client := &http.Client{Timeout: 5 * time.Second}
-			resp, err := client.Do(req)
-			if err != nil {
-				os.Exit(1)
-			}
-			_ = resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				os.Exit(1)
-			}
-			os.Exit(0)
+			os.Exit(runHealthcheck())
 		case "--version", "-version":
 			fmt.Println("mcp-gate " + version)
 			os.Exit(0)
@@ -191,8 +197,9 @@ func (cfg *runConfig) validate() error {
 }
 
 // run starts the mcp-gate server and blocks until ctx is cancelled or a fatal
-// error occurs. If ready is non-nil, the result is sent after the listener is bound.
-func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (*runResult, error) {
+// error occurs. If ready is non-nil, the result is sent after the listener is bound;
+// the channel should be buffered or actively drained to avoid blocking run.
+func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *runResult, err error) {
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
@@ -209,6 +216,16 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (*runResu
 	go func() {
 		if err := metricsSrv.Serve(); err != nil {
 			metricsErrCh <- fmt.Errorf("metrics server: %w", err)
+		}
+	}()
+	// Guarantee the metrics server is stopped on any early-return error path.
+	// On the graceful shutdown path, Shutdown is called explicitly below and
+	// a second call here is a harmless no-op.
+	defer func() {
+		if err != nil {
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer stopCancel()
+			_ = metricsSrv.Shutdown(stopCtx)
 		}
 	}()
 
@@ -271,7 +288,7 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (*runResu
 	mux.HandleFunc("GET /.well-known/oauth-protected-resource", metadataHandler)
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		if !authMW.IsReady() {
+		if !authMW.IsReady(r.Context()) {
 			http.Error(w, "jwks not ready", http.StatusServiceUnavailable)
 			return
 		}
@@ -339,7 +356,7 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (*runResu
 		return nil, fmt.Errorf("listen %s: %w", cfg.listenAddr, err)
 	}
 
-	result := &runResult{
+	result = &runResult{
 		Addr:        ln.Addr().String(),
 		MetricsAddr: metricsSrv.Addr(),
 	}
@@ -362,7 +379,7 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (*runResu
 			"upstream", cfg.upstreamURL.String(),
 			"resource_uri", cfg.resourceURI,
 		)
-		if err := server.Serve(ln); err != http.ErrServerClosed {
+		if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- fmt.Errorf("server error: %w", err)
 		}
 	}()
@@ -381,22 +398,20 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (*runResu
 		return result, err
 	}
 
-	// Graceful shutdown with timeout.
-	// Order: server → OTEL flush → metrics server → JWKS cancel
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.shutdownTimeout)
-	defer shutdownCancel()
-
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		slog.Warn("shutdown forced — connections closed", "error", err)
+	// Graceful shutdown with an independent deadline per stage, so a slow
+	// server drain cannot starve OTEL flush or metrics shutdown of their
+	// budget. Order: server → OTEL flush → metrics server → JWKS cancel.
+	shutdownStage := func(name string, fn func(context.Context) error) {
+		stageCtx, stageCancel := context.WithTimeout(context.Background(), cfg.shutdownTimeout)
+		defer stageCancel()
+		if err := fn(stageCtx); err != nil {
+			slog.Warn("shutdown stage error", "stage", name, "error", err)
+		}
 	}
 
-	if err := otelProvider.Shutdown(shutdownCtx); err != nil {
-		slog.Warn("otel shutdown error", "error", err)
-	}
-
-	if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
-		slog.Warn("metrics server shutdown error", "error", err)
-	}
+	shutdownStage("server", server.Shutdown)
+	shutdownStage("otel", otelProvider.Shutdown)
+	shutdownStage("metrics", metricsSrv.Shutdown)
 
 	jwksCancel() // Cancel JWKS refresh AFTER server is drained
 	slog.Info("server stopped")

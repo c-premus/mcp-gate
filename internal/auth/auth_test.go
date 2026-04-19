@@ -487,7 +487,7 @@ func TestIsReady(t *testing.T) {
 
 	mw := newMiddleware(t, ts, []string{"openid"})
 
-	if !mw.IsReady() {
+	if !mw.IsReady(t.Context()) {
 		t.Error("expected IsReady() to return true after successful JWKS fetch")
 	}
 }
