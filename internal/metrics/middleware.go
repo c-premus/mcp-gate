@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"log/slog"
-	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -82,9 +81,8 @@ func (r *responseRecorder) Unwrap() http.ResponseWriter {
 }
 
 // Middleware records HTTP request count and duration metrics.
-// trustedProxies controls which peers are trusted for X-Forwarded-For /
-// X-Real-IP header extraction. Pass nil to always use RemoteAddr.
-func Middleware(next http.Handler, trustedProxies []*net.IPNet) http.Handler {
+// It reads the client IP from the request context (set by realip.Middleware).
+func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		route := RouteClassifier(r)
@@ -107,7 +105,7 @@ func Middleware(next http.Handler, trustedProxies []*net.IPNet) http.Handler {
 			"path", truncate(r.URL.Path, maxLoggedFieldBytes),
 			"status", rec.statusCode,
 			"duration_ms", int(duration*1000),
-			"client_ip", realip.Extract(r, trustedProxies),
+			"client_ip", realip.FromContext(r),
 			"user_agent", truncate(r.Header.Get("User-Agent"), maxLoggedFieldBytes),
 		)
 	})

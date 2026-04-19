@@ -7,11 +7,37 @@
 package realip
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
 	"strings"
 )
+
+// ipContextKey is the context key for the extracted client IP.
+type ipContextKey struct{}
+
+// FromContext returns the client IP previously stored by Middleware.
+// If no IP is in the context, it returns an empty string.
+func FromContext(r *http.Request) string {
+	if ip, ok := r.Context().Value(ipContextKey{}).(string); ok {
+		return ip
+	}
+	return ""
+}
+
+// Middleware returns HTTP middleware that calls Extract once and stores the
+// result in the request context. Downstream handlers use FromContext to
+// retrieve the IP without re-parsing headers.
+func Middleware(trustedProxies []*net.IPNet) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip := Extract(r, trustedProxies)
+			ctx := context.WithValue(r.Context(), ipContextKey{}, ip)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
 
 // Extract returns the real client IP for the given request. When the
 // direct peer (RemoteAddr) falls within a trusted proxy CIDR, it checks

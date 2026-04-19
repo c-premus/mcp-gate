@@ -2,14 +2,13 @@
 //
 // Limiter enforces a token-bucket rate limit per client IP with automatic
 // cleanup of stale entries. ConcurrentLimiter caps in-flight requests per IP
-// and globally. Both resolve client IPs through trusted proxy headers via
-// the realip package.
+// and globally. Both read the client IP from the request context, set upstream
+// by realip.Middleware.
 package ratelimit
 
 import (
 	"context"
 	"log/slog"
-	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -25,7 +24,6 @@ type Config struct {
 	Burst           int           // Burst capacity per IP
 	CleanupInterval time.Duration // How often to evict stale entries
 	StaleAfter      time.Duration // Evict entries not seen for this duration
-	TrustedProxies  []*net.IPNet  // For realip.Extract()
 	MaxClients      int           // Max tracked IPs (0 = default 100,000)
 }
 
@@ -108,7 +106,7 @@ func (l *Limiter) getLimiter(ip string) (*rate.Limiter, bool) {
 // Rejected requests receive 429 Too Many Requests with a JSON body.
 func (l *Limiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		clientIP := realip.Extract(r, l.cfg.TrustedProxies)
+		clientIP := realip.FromContext(r)
 		limiter, ok := l.getLimiter(clientIP)
 
 		if !ok {
@@ -152,21 +150,19 @@ func (l *Limiter) ClientCount() int {
 
 // ConcurrentLimiter limits the number of concurrent in-flight requests per IP.
 type ConcurrentLimiter struct {
-	mu             sync.Mutex
-	active         map[string]int
-	maxPerIP       int
-	maxTotal       int
-	total          int
-	trustedProxies []*net.IPNet
+	mu       sync.Mutex
+	active   map[string]int
+	maxPerIP int
+	maxTotal int
+	total    int
 }
 
 // NewConcurrentLimiter creates a concurrent request limiter.
-func NewConcurrentLimiter(maxPerIP, maxTotal int, trustedProxies []*net.IPNet) *ConcurrentLimiter {
+func NewConcurrentLimiter(maxPerIP, maxTotal int) *ConcurrentLimiter {
 	return &ConcurrentLimiter{
-		active:         make(map[string]int),
-		maxPerIP:       maxPerIP,
-		maxTotal:       maxTotal,
-		trustedProxies: trustedProxies,
+		active:   make(map[string]int),
+		maxPerIP: maxPerIP,
+		maxTotal: maxTotal,
 	}
 }
 
@@ -174,7 +170,7 @@ func NewConcurrentLimiter(maxPerIP, maxTotal int, trustedProxies []*net.IPNet) *
 // Rejected requests receive 503 Service Unavailable with a JSON body.
 func (cl *ConcurrentLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		clientIP := realip.Extract(r, cl.trustedProxies)
+		clientIP := realip.FromContext(r)
 
 		cl.mu.Lock()
 		if cl.total >= cl.maxTotal || cl.active[clientIP] >= cl.maxPerIP {

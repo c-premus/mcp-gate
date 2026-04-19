@@ -248,8 +248,7 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (*runResu
 		RequiredScopes:   cfg.requiredScopes,
 		ResourceURI:      cfg.resourceURI,
 		Realm:            "grafana-mcp",
-		ScopesSupported:  strings.Join(cfg.scopesSupported, " "),
-		TrustedProxies:   cfg.trustedProxies,
+		ScopesSupported: strings.Join(cfg.scopesSupported, " "),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("auth middleware init: %w", err)
@@ -302,18 +301,18 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (*runResu
 		RPS:             cfg.rateLimitRPS,
 		Burst:           cfg.rateLimitBurst,
 		CleanupInterval: 5 * time.Minute,
-		StaleAfter:      10 * time.Minute,
-		TrustedProxies:  cfg.trustedProxies,
+		StaleAfter: 10 * time.Minute,
 	})
 
 	// Per-IP concurrent request limiter
-	cl := ratelimit.NewConcurrentLimiter(cfg.maxConcurrentPerIP, cfg.maxTotalConnections, cfg.trustedProxies)
+	cl := ratelimit.NewConcurrentLimiter(cfg.maxConcurrentPerIP, cfg.maxTotalConnections)
 
 	// Handler wrapping order (outermost → innermost):
-	// otelhttp → metrics → rateLimiter → concurrentLimiter → securityHeaders → mux
+	// otelhttp → realip → metrics → rateLimiter → concurrentLimiter → securityHeaders → mux
 	handler := cl.Middleware(securityHeaders)
 	handler = rl.Middleware(handler)
-	handler = metrics.Middleware(handler, cfg.trustedProxies)
+	handler = metrics.Middleware(handler)
+	handler = realip.Middleware(cfg.trustedProxies)(handler)
 	handler = otelhttp.NewHandler(handler, "mcp-gate")
 
 	// Create server with timeouts (no WriteTimeout — kills SSE streams)

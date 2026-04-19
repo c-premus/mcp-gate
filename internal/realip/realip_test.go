@@ -362,6 +362,55 @@ func TestParseCIDRs_RejectsCatchAllAmongValid(t *testing.T) {
 	}
 }
 
+func TestMiddleware_StoresIPInContext(t *testing.T) {
+	trusted := mustParseCIDRs(t, []string{"10.0.0.0/8"})
+	mw := Middleware(trusted)
+
+	var gotIP string
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotIP = FromContext(r)
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
+	req.RemoteAddr = "10.0.0.1:1234"
+	req.Header.Set("X-Forwarded-For", "203.0.113.50")
+
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	if gotIP != "203.0.113.50" {
+		t.Errorf("FromContext = %q, want 203.0.113.50", gotIP)
+	}
+}
+
+func TestFromContext_NoMiddleware(t *testing.T) {
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
+	got := FromContext(req)
+	if got != "" {
+		t.Errorf("FromContext without middleware = %q, want empty string", got)
+	}
+}
+
+func TestMiddleware_NoTrustedProxies(t *testing.T) {
+	mw := Middleware(nil)
+
+	var gotIP string
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotIP = FromContext(r)
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
+	req.RemoteAddr = "203.0.113.50:12345"
+	req.Header.Set("X-Forwarded-For", "198.51.100.1")
+
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	if gotIP != "203.0.113.50" {
+		t.Errorf("FromContext = %q, want 203.0.113.50 (RemoteAddr, ignoring XFF)", gotIP)
+	}
+}
+
 func TestParseCIDRs_AcceptsNarrowCIDRs(t *testing.T) {
 	// /1 is broad but still narrower than /0 — must be accepted.
 	// Narrow internal ranges are the common case.

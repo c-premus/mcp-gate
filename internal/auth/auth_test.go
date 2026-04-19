@@ -760,6 +760,91 @@ func TestEmptySubjectRejected(t *testing.T) {
 	}
 }
 
+func TestRS384Rejected(t *testing.T) {
+	ts := newTestSetup(t)
+	defer ts.Close()
+
+	mw := newMiddleware(t, ts, []string{"openid"})
+	claims := validClaims()
+
+	// Sign with RS384 instead of RS256 — must be rejected
+	token := jwt.NewWithClaims(jwt.SigningMethodRS384, claims)
+	token.Header["kid"] = testKID
+	token.Header["typ"] = "at+jwt"
+	signed, err := token.SignedString(ts.privKey)
+	if err != nil {
+		t.Fatalf("sign RS384 token: %v", err)
+	}
+
+	w := doRequest(t, mw, "Bearer "+signed)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 (RS384 must be rejected), got %d", w.Code)
+	}
+}
+
+func TestEmptyRequiredScopesAcceptsAnyScope(t *testing.T) {
+	ts := newTestSetup(t)
+	defer ts.Close()
+
+	// No required scopes — any token should pass scope check
+	mw := newMiddleware(t, ts, nil)
+	claims := validClaims()
+	claims.Scope = "" // no scope at all
+	token := signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
+
+	w := doRequest(t, mw, "Bearer "+token)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 (empty RequiredScopes means no scope enforcement), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestNewMiddleware_MissingJWKSURI(t *testing.T) {
+	_, err := auth.NewMiddleware(auth.Config{
+		Ctx:              t.Context(),
+		JWKSURI:          "",
+		ExpectedIssuer:   testIssuer,
+		ExpectedAudience: testAudience,
+	})
+	if err == nil {
+		t.Fatal("expected error for empty JWKSURI")
+	}
+	if !strings.Contains(err.Error(), "JWKSURI") {
+		t.Errorf("error %q should mention JWKSURI", err)
+	}
+}
+
+func TestNewMiddleware_MissingExpectedIssuer(t *testing.T) {
+	_, err := auth.NewMiddleware(auth.Config{
+		Ctx:              t.Context(),
+		JWKSURI:          "https://example.com/jwks",
+		ExpectedIssuer:   "",
+		ExpectedAudience: testAudience,
+	})
+	if err == nil {
+		t.Fatal("expected error for empty ExpectedIssuer")
+	}
+	if !strings.Contains(err.Error(), "ExpectedIssuer") {
+		t.Errorf("error %q should mention ExpectedIssuer", err)
+	}
+}
+
+func TestNewMiddleware_MissingExpectedAudience(t *testing.T) {
+	_, err := auth.NewMiddleware(auth.Config{
+		Ctx:              t.Context(),
+		JWKSURI:          "https://example.com/jwks",
+		ExpectedIssuer:   testIssuer,
+		ExpectedAudience: "",
+	})
+	if err == nil {
+		t.Fatal("expected error for empty ExpectedAudience")
+	}
+	if !strings.Contains(err.Error(), "ExpectedAudience") {
+		t.Errorf("error %q should mention ExpectedAudience", err)
+	}
+}
+
 func TestMultipleAuthorizationHeaders(t *testing.T) {
 	ts := newTestSetup(t)
 	defer ts.Close()

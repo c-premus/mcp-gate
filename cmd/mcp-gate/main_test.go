@@ -718,6 +718,10 @@ func TestLoadConfig_Errors(t *testing.T) {
 		{"bad_READ_TIMEOUT", func(t *testing.T) { t.Setenv("READ_TIMEOUT", "not-a-duration") }, "READ_TIMEOUT"},
 		{"bad_IDLE_TIMEOUT", func(t *testing.T) { t.Setenv("IDLE_TIMEOUT", "not-a-duration") }, "IDLE_TIMEOUT"},
 		{"bad_MAX_HEADER_BYTES", func(t *testing.T) { t.Setenv("MAX_HEADER_BYTES", "not-a-number") }, "MAX_HEADER_BYTES"},
+		// OTEL_TRACE_SAMPLE_RATE out of range
+		{"OTEL_TRACE_SAMPLE_RATE_negative", func(t *testing.T) { t.Setenv("OTEL_TRACE_SAMPLE_RATE", "-0.1") }, "OTEL_TRACE_SAMPLE_RATE"},
+		{"OTEL_TRACE_SAMPLE_RATE_above_1", func(t *testing.T) { t.Setenv("OTEL_TRACE_SAMPLE_RATE", "1.1") }, "OTEL_TRACE_SAMPLE_RATE"},
+		{"bad_OTEL_TRACE_SAMPLE_RATE", func(t *testing.T) { t.Setenv("OTEL_TRACE_SAMPLE_RATE", "not-a-float") }, "OTEL_TRACE_SAMPLE_RATE"},
 	}
 
 	for _, tt := range tests {
@@ -731,6 +735,20 @@ func TestLoadConfig_Errors(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("error = %q, want to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_OTELSampleRateBoundaries(t *testing.T) {
+	for _, rate := range []string{"0.0", "1.0", "0.5"} {
+		t.Run(rate, func(t *testing.T) {
+			setRequiredEnv(t)
+			t.Setenv("OTEL_TRACE_SAMPLE_RATE", rate)
+
+			_, err := loadConfig()
+			if err != nil {
+				t.Fatalf("OTEL_TRACE_SAMPLE_RATE=%s should be valid, got error: %v", rate, err)
 			}
 		})
 	}

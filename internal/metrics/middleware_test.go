@@ -77,7 +77,7 @@ func TestResponseRecorder_Unwrap(t *testing.T) {
 func TestMiddleware_RecordsMetrics(t *testing.T) {
 	handler := Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-	}), nil)
+	}))
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", http.NoBody)
 	w := httptest.NewRecorder()
@@ -134,7 +134,7 @@ func TestMiddleware_TruncatesLongPathAndUserAgent(t *testing.T) {
 
 	handler := Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-	}), nil)
+	}))
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, longPath, http.NoBody)
 	req.Header.Set("User-Agent", longUA)

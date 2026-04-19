@@ -9,9 +9,9 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"slices"
 	"strings"
@@ -41,10 +41,9 @@ type Config struct {
 	ExpectedIssuer   string
 	ExpectedAudience string
 	RequiredScopes   []string
-	ResourceURI      string       // Public URL for WWW-Authenticate resource_metadata
-	Realm            string       // e.g. "grafana-mcp"
-	ScopesSupported  string       // Space-separated scopes for WWW-Authenticate
-	TrustedProxies   []*net.IPNet // CIDRs trusted for X-Forwarded-For / X-Real-IP
+	ResourceURI     string // Public URL for WWW-Authenticate resource_metadata
+	Realm           string // e.g. "grafana-mcp"
+	ScopesSupported string // Space-separated scopes for WWW-Authenticate
 }
 
 // Middleware validates JWT Bearer tokens against a JWKS endpoint.
@@ -62,6 +61,18 @@ type Middleware struct {
 // storage to update observability metrics (key count and last-key-change
 // timestamp). The goroutine exits when cfg.Ctx is cancelled.
 func NewMiddleware(cfg Config) (*Middleware, error) {
+	// Validate required fields before making the blocking JWKS fetch,
+	// so misconfigurations produce clear error messages.
+	if cfg.JWKSURI == "" {
+		return nil, errors.New("auth config: JWKSURI is required")
+	}
+	if cfg.ExpectedIssuer == "" {
+		return nil, errors.New("auth config: ExpectedIssuer is required")
+	}
+	if cfg.ExpectedAudience == "" {
+		return nil, errors.New("auth config: ExpectedAudience is required")
+	}
+
 	// Build per-URL storage with blocking initial fetch
 	store, err := jwkset.NewStorageFromHTTP(cfg.JWKSURI, jwkset.HTTPClientStorageOptions{
 		Ctx:             cfg.Ctx,
@@ -194,7 +205,7 @@ func (m *Middleware) KeyCount() (int, error) {
 func (m *Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		span := trace.SpanFromContext(r.Context())
-		clientIP := realip.Extract(r, m.cfg.TrustedProxies)
+		clientIP := realip.FromContext(r)
 
 		// Extract Bearer token
 		authHeader := r.Header.Get("Authorization")

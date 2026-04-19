@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -14,15 +13,6 @@ import (
 	"github.com/c-premus/mcp-gate/internal/ratelimit"
 	"github.com/c-premus/mcp-gate/internal/realip"
 )
-
-func mustParseCIDRs(t *testing.T, cidrs ...string) []*net.IPNet {
-	t.Helper()
-	nets, err := realip.ParseCIDRs(cidrs)
-	if err != nil {
-		t.Fatalf("parse CIDRs: %v", err)
-	}
-	return nets
-}
 
 func okHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +34,7 @@ func TestMiddleware_AllowsUnderLimit(t *testing.T) {
 	})
 	defer rl.Stop()
 
-	handler := rl.Middleware(okHandler())
+	handler := realip.Middleware(nil)(rl.Middleware(okHandler()))
 
 	for i := range 5 {
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
@@ -69,7 +59,7 @@ func TestMiddleware_RejectsOverLimit(t *testing.T) {
 	})
 	defer rl.Stop()
 
-	handler := rl.Middleware(okHandler())
+	handler := realip.Middleware(nil)(rl.Middleware(okHandler()))
 
 	// First 3 should pass (burst=3)
 	for i := range 3 {
@@ -104,7 +94,7 @@ func TestMiddleware_DifferentIPsIndependent(t *testing.T) {
 	})
 	defer rl.Stop()
 
-	handler := rl.Middleware(okHandler())
+	handler := realip.Middleware(nil)(rl.Middleware(okHandler()))
 
 	// Exhaust limit for IP A
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
@@ -146,7 +136,7 @@ func TestMiddleware_ReplenishesTokens(t *testing.T) {
 	})
 	defer rl.Stop()
 
-	handler := rl.Middleware(okHandler())
+	handler := realip.Middleware(nil)(rl.Middleware(okHandler()))
 
 	// Use the single burst token
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
@@ -181,7 +171,7 @@ func TestMiddleware_ResponseFormat(t *testing.T) {
 	})
 	defer rl.Stop()
 
-	handler := rl.Middleware(okHandler())
+	handler := realip.Middleware(nil)(rl.Middleware(okHandler()))
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	req.RemoteAddr = "203.0.113.1:12345"
@@ -216,17 +206,21 @@ func TestMiddleware_UsesRealIP(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	trusted := mustParseCIDRs(t, "10.0.0.0/8")
+	trusted, err := realip.ParseCIDRs([]string{"10.0.0.0/8"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	rl := ratelimit.New(ctx, ratelimit.Config{
 		RPS:             1,
 		Burst:           1,
 		CleanupInterval: time.Hour,
 		StaleAfter:      time.Hour,
-		TrustedProxies:  trusted,
 	})
 	defer rl.Stop()
 
-	handler := rl.Middleware(okHandler())
+	// Wrap with realip.Middleware so FromContext resolves client IP
+	handler := realip.Middleware(trusted)(rl.Middleware(okHandler()))
 
 	// First request from "real" client via trusted proxy
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
@@ -271,7 +265,7 @@ func TestCleanup_EvictsStaleEntries(t *testing.T) {
 	})
 	defer rl.Stop()
 
-	handler := rl.Middleware(okHandler())
+	handler := realip.Middleware(nil)(rl.Middleware(okHandler()))
 
 	// Generate an entry
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
@@ -304,7 +298,7 @@ func TestMiddleware_RejectsWhenMapFull(t *testing.T) {
 	})
 	defer rl.Stop()
 
-	handler := rl.Middleware(okHandler())
+	handler := realip.Middleware(nil)(rl.Middleware(okHandler()))
 
 	// Fill the map with 3 unique IPs
 	for i := range 3 {
@@ -343,8 +337,8 @@ func TestMiddleware_RejectsWhenMapFull(t *testing.T) {
 // --- Concurrent Limiter tests ---
 
 func TestConcurrentLimiter_AllowsUnderLimit(t *testing.T) {
-	cl := ratelimit.NewConcurrentLimiter(10, 100, nil)
-	handler := cl.Middleware(okHandler())
+	cl := ratelimit.NewConcurrentLimiter(10, 100)
+	handler := realip.Middleware(nil)(cl.Middleware(okHandler()))
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	req.RemoteAddr = "203.0.113.1:12345"
@@ -357,14 +351,14 @@ func TestConcurrentLimiter_AllowsUnderLimit(t *testing.T) {
 }
 
 func TestConcurrentLimiter_RejectsOverPerIPLimit(t *testing.T) {
-	cl := ratelimit.NewConcurrentLimiter(2, 100, nil)
+	cl := ratelimit.NewConcurrentLimiter(2, 100)
 
 	block := make(chan struct{})
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-block
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := cl.Middleware(next)
+	handler := realip.Middleware(nil)(cl.Middleware(next))
 
 	var wg sync.WaitGroup
 
@@ -396,14 +390,14 @@ func TestConcurrentLimiter_RejectsOverPerIPLimit(t *testing.T) {
 }
 
 func TestConcurrentLimiter_RejectsOverTotalLimit(t *testing.T) {
-	cl := ratelimit.NewConcurrentLimiter(100, 2, nil)
+	cl := ratelimit.NewConcurrentLimiter(100, 2)
 
 	block := make(chan struct{})
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-block
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := cl.Middleware(next)
+	handler := realip.Middleware(nil)(cl.Middleware(next))
 
 	var wg sync.WaitGroup
 
@@ -434,9 +428,9 @@ func TestConcurrentLimiter_RejectsOverTotalLimit(t *testing.T) {
 }
 
 func TestConcurrentLimiter_ReleasesOnCompletion(t *testing.T) {
-	cl := ratelimit.NewConcurrentLimiter(1, 100, nil)
+	cl := ratelimit.NewConcurrentLimiter(1, 100)
 
-	handler := cl.Middleware(okHandler())
+	handler := realip.Middleware(nil)(cl.Middleware(okHandler()))
 
 	// First request completes immediately
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
@@ -458,9 +452,9 @@ func TestConcurrentLimiter_ReleasesOnCompletion(t *testing.T) {
 }
 
 func TestConcurrentLimiter_ResponseFormat(t *testing.T) {
-	cl := ratelimit.NewConcurrentLimiter(0, 100, nil) // per-IP limit of 0 = always reject
+	cl := ratelimit.NewConcurrentLimiter(0, 100) // per-IP limit of 0 = always reject
 
-	handler := cl.Middleware(okHandler())
+	handler := realip.Middleware(nil)(cl.Middleware(okHandler()))
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 	req.RemoteAddr = "203.0.113.1:12345"
@@ -492,14 +486,14 @@ func TestConcurrentLimiter_ResponseFormat(t *testing.T) {
 }
 
 func TestConcurrentLimiter_DifferentIPsIndependent(t *testing.T) {
-	cl := ratelimit.NewConcurrentLimiter(1, 100, nil)
+	cl := ratelimit.NewConcurrentLimiter(1, 100)
 
 	block := make(chan struct{})
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-block
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := cl.Middleware(next)
+	handler := realip.Middleware(nil)(cl.Middleware(next))
 
 	var wg sync.WaitGroup
 

@@ -273,6 +273,45 @@ func TestTracePropagationHeaders(t *testing.T) {
 	}
 }
 
+func TestHopByHopHeadersStripped(t *testing.T) {
+	// Upstream echoes all headers so we can verify hop-by-hop headers are stripped
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]string{
+			"connection":        r.Header.Get("Connection"),
+			"te":                r.Header.Get("Te"),
+			"transfer-encoding": r.Header.Get("Transfer-Encoding"),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer upstream.Close()
+
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
+	req.Header.Set("Connection", "keep-alive, X-Custom")
+	// "deflate" rather than "trailers" — Go's httputil intentionally re-adds
+	// TE: trailers to signal trailer support to backends (stdlib issue 21096).
+	req.Header.Set("Te", "deflate")
+	req.Header.Set("Transfer-Encoding", "chunked")
+
+	resp := doProxyRequest(t, upstream, req)
+	defer func() { _ = resp.Body.Close() }()
+
+	var body map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if body["connection"] != "" {
+		t.Errorf("Connection header not stripped: got %q", body["connection"])
+	}
+	if body["te"] != "" {
+		t.Errorf("Te header not stripped: got %q", body["te"])
+	}
+	if body["transfer-encoding"] != "" {
+		t.Errorf("Transfer-Encoding header not stripped: got %q", body["transfer-encoding"])
+	}
+}
+
 func TestCustomTransportConfig_DialTimeout(t *testing.T) {
 	tc := proxy.DefaultTransportConfig()
 	tc.DialTimeout = time.Nanosecond // Impossibly short
