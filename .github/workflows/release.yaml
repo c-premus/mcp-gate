@@ -102,18 +102,18 @@ jobs:
           short-description: "OAuth 2.1 reverse proxy for MCP servers"
 
       - name: Clean up old GHCR versions
-        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55  # v5.0.0
+        # snok/container-retention-policy is a Rust/Docker action — no Node
+        # runtime, so it sidesteps the GitHub Actions Node 20 deprecation
+        # treadmill entirely. Upstream actions/delete-package-versions has
+        # had no release since v5.0.0 (Jan 2024, Node 20).
+        uses: snok/container-retention-policy@3b0972b2276b171b212f8c4efbca59ebba26eceb  # v3.0.1
         continue-on-error: true
-        env:
-          # Opt into Node 24 early — upstream action is still pinned to Node 20
-          # and has no newer release. Node 20 becomes the non-default on
-          # 2026-06-02 and is removed on 2026-09-16.
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         with:
-          package-name: mcp-gate
-          package-type: container
-          min-versions-to-keep: 5
-          delete-only-untagged-versions: true
+          account: user
+          token: ${{ secrets.GITHUB_TOKEN }}
+          image-names: mcp-gate
+          tag-selection: untagged
+          cut-off: 1d
 
       - name: Clean up old Docker Hub tags and images
         continue-on-error: true
