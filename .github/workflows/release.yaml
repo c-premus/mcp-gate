@@ -104,6 +104,11 @@ jobs:
       - name: Clean up old GHCR versions
         uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55  # v5.0.0
         continue-on-error: true
+        env:
+          # Opt into Node 24 early — upstream action is still pinned to Node 20
+          # and has no newer release. Node 20 becomes the non-default on
+          # 2026-06-02 and is removed on 2026-09-16.
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         with:
           package-name: mcp-gate
           package-type: container
