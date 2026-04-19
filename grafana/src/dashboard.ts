@@ -7,6 +7,7 @@ import {
 import { overviewPanels } from "./panels/overview";
 import { authRow } from "./panels/auth";
 import { proxyRow } from "./panels/proxy";
+import { jwksRow } from "./panels/jwks";
 import { tracesRow } from "./panels/traces";
 import { logsPanels } from "./panels/logs";
 
@@ -47,6 +48,7 @@ export function buildDashboard(): DashboardBuilder {
   builder = builder
     .withRow(authRow())
     .withRow(proxyRow())
+    .withRow(jwksRow())
     .withRow(tracesRow());
 
   // Logs — uncollapsed row with panels added directly to dashboard

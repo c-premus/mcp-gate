@@ -1,4 +1,4 @@
-import type { dashboard } from "@grafana/grafana-foundation-sdk";
+import type * as dashboard from "@grafana/grafana-foundation-sdk/dashboard";
 
 export const PROMETHEUS: dashboard.DataSourceRef = {
   type: "prometheus",

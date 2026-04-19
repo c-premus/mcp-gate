@@ -8,7 +8,8 @@ import {
   TooltipDisplayMode,
   SortOrder,
 } from "@grafana/grafana-foundation-sdk/common";
-import type { cog, dashboard } from "@grafana/grafana-foundation-sdk";
+import type * as cog from "@grafana/grafana-foundation-sdk/cog";
+import type * as dashboard from "@grafana/grafana-foundation-sdk/dashboard";
 import { LOKI, SERVICE_NAME, HEALTHZ_FILTER } from "./constants";
 
 function logVolumeTimeseries(): TimeseriesPanel {

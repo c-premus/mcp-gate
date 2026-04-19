@@ -784,62 +784,6 @@
           ]
         },
         {
-          "type": "stat",
-          "transparent": false,
-          "repeatDirection": "h",
-          "title": "JWKS Keys",
-          "description": "Number of cached JWKS signing keys",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "noValue": "0",
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "value": null,
-                    "color": "red"
-                  },
-                  {
-                    "value": 1,
-                    "color": "green"
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          },
-          "options": {
-            "graphMode": "area",
-            "colorMode": "value",
-            "justifyMode": "auto",
-            "textMode": "auto",
-            "wideLayout": true,
-            "showPercentChange": false,
-            "reduceOptions": {
-              "calcs": []
-            },
-            "percentChangeColorMode": "standard",
-            "orientation": "auto"
-          },
-          "gridPos": {
-            "h": 5,
-            "w": 8,
-            "x": 16,
-            "y": 29
-          },
-          "targets": [
-            {
-              "expr": "mcpgate_jwks_keys_loaded{job=\"mcp-gate\"}",
-              "refId": "A",
-              "legendFormat": "keys"
-            }
-          ]
-        },
-        {
           "type": "timeseries",
           "transparent": false,
           "repeatDirection": "h",
@@ -870,8 +814,8 @@
           "gridPos": {
             "h": 8,
             "w": 12,
-            "x": 0,
-            "y": 34
+            "x": 16,
+            "y": 29
           },
           "targets": [
             {
@@ -922,8 +866,8 @@
           "gridPos": {
             "h": 8,
             "w": 12,
-            "x": 12,
-            "y": 34
+            "x": 0,
+            "y": 37
           },
           "targets": [
             {
@@ -948,6 +892,286 @@
       "id": 0,
       "panels": [
         {
+          "type": "stat",
+          "transparent": false,
+          "repeatDirection": "h",
+          "title": "JWKS Keys Loaded",
+          "description": "Number of cached JWKS signing keys. Zero means mcp-gate cannot validate any JWT.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "value": null,
+                    "color": "red"
+                  },
+                  {
+                    "value": 1,
+                    "color": "green"
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "graphMode": "area",
+            "colorMode": "value",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "wideLayout": true,
+            "showPercentChange": false,
+            "reduceOptions": {
+              "calcs": []
+            },
+            "percentChangeColorMode": "standard",
+            "orientation": "auto"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 8,
+            "x": 0,
+            "y": 46
+          },
+          "targets": [
+            {
+              "expr": "mcpgate_jwks_keys_loaded{job=\"mcp-gate\"}",
+              "refId": "A",
+              "legendFormat": "keys"
+            }
+          ]
+        },
+        {
+          "type": "stat",
+          "transparent": false,
+          "repeatDirection": "h",
+          "title": "Refresh Errors",
+          "description": "JWKS refresh failures within the dashboard time range (liveness signal)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "value": null,
+                    "color": "green"
+                  },
+                  {
+                    "value": 1,
+                    "color": "yellow"
+                  },
+                  {
+                    "value": 5,
+                    "color": "red"
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "graphMode": "area",
+            "colorMode": "value",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "wideLayout": true,
+            "showPercentChange": false,
+            "reduceOptions": {
+              "calcs": []
+            },
+            "percentChangeColorMode": "standard",
+            "orientation": "auto"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 8,
+            "x": 8,
+            "y": 46
+          },
+          "targets": [
+            {
+              "expr": "increase(mcpgate_jwks_refresh_errors_total{job=\"mcp-gate\"}[$__range])",
+              "refId": "A",
+              "legendFormat": "errors",
+              "instant": true,
+              "range": false
+            }
+          ]
+        },
+        {
+          "type": "stat",
+          "transparent": false,
+          "repeatDirection": "h",
+          "title": "Time Since Key Change",
+          "description": "Duration since the JWKS key set last changed (correctness signal — stale may indicate stuck refresh)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "noValue": "—",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "value": null,
+                    "color": "green"
+                  },
+                  {
+                    "value": 2592000,
+                    "color": "yellow"
+                  },
+                  {
+                    "value": 7776000,
+                    "color": "red"
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "graphMode": "area",
+            "colorMode": "value",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "wideLayout": true,
+            "showPercentChange": false,
+            "reduceOptions": {
+              "calcs": []
+            },
+            "percentChangeColorMode": "standard",
+            "orientation": "auto"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 8,
+            "x": 16,
+            "y": 46
+          },
+          "targets": [
+            {
+              "expr": "time() - mcpgate_jwks_last_key_change_timestamp_seconds{job=\"mcp-gate\"}",
+              "refId": "A",
+              "legendFormat": "age"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "transparent": false,
+          "repeatDirection": "h",
+          "title": "JWKS Refresh Error Rate",
+          "description": "Rate of JWKS refresh failures over time",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "cps"
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 51
+          },
+          "targets": [
+            {
+              "expr": "rate(mcpgate_jwks_refresh_errors_total{job=\"mcp-gate\"}[$__rate_interval])",
+              "refId": "A",
+              "legendFormat": "errors/s"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "transparent": false,
+          "repeatDirection": "h",
+          "title": "JWKS Keys Loaded Over Time",
+          "description": "Cached JWKS signing-key count over time",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "green"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 51
+          },
+          "targets": [
+            {
+              "expr": "mcpgate_jwks_keys_loaded{job=\"mcp-gate\"}",
+              "refId": "A",
+              "legendFormat": "keys"
+            }
+          ]
+        }
+      ],
+      "title": "JWKS Health",
+      "gridPos": {
+        "x": 0,
+        "y": 45,
+        "h": 1,
+        "w": 24
+      }
+    },
+    {
+      "type": "row",
+      "collapsed": true,
+      "id": 0,
+      "panels": [
+        {
           "type": "table",
           "transparent": false,
           "repeatDirection": "h",
@@ -961,7 +1185,7 @@
             "h": 12,
             "w": 24,
             "x": 0,
-            "y": 43
+            "y": 60
           },
           "targets": [
             {
@@ -977,7 +1201,7 @@
       "title": "Trace Explorer",
       "gridPos": {
         "x": 0,
-        "y": 42,
+        "y": 59,
         "h": 1,
         "w": 24
       }
@@ -990,7 +1214,7 @@
       "title": "Logs",
       "gridPos": {
         "x": 0,
-        "y": 55,
+        "y": 72,
         "h": 1,
         "w": 24
       }
@@ -1027,7 +1251,7 @@
         "h": 5,
         "w": 24,
         "x": 0,
-        "y": 56
+        "y": 73
       },
       "targets": [
         {
@@ -1062,7 +1286,7 @@
         "h": 16,
         "w": 24,
         "x": 0,
-        "y": 61
+        "y": 78
       },
       "targets": [
         {

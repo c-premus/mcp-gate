@@ -1,0 +1,230 @@
+# Grafana alert rule provisioning for mcp-gate JWKS health.
+#
+# Copied into services/grafana/provisioning/alerting/mcp-gate.yaml on the
+# deploy host by .forgejo/workflows/deploy.yaml. The folder "mcp-gate" is
+# created automatically by Grafana at load time.
+#
+# These rules are provisioned without notification_settings — they use the
+# default notification policy (root route) of the Alertmanager configured in
+# Grafana. Add routing to the Alertmanager config tree to target them via the
+# severity / service labels below.
+
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: mcp-gate-jwks
+    folder: mcp-gate
+    interval: 1m
+    rules:
+      # Critical: no signing keys cached means every JWT validation will fail.
+      # This is a full authentication outage for mcp-gate.
+      - uid: mcp-gate-jwks-keys-empty
+        title: mcp-gate JWKS Keys Empty
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: mcpgate_jwks_keys_loaded{job="mcp-gate"}
+              intervalMs: 1000
+              maxDataPoints: 43200
+              datasource:
+                type: prometheus
+                uid: prometheus
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              datasource:
+                type: __expr__
+                uid: __expr__
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: lt
+                    params: [1]
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 5m
+        labels:
+          severity: critical
+          service: mcp-gate
+        annotations:
+          summary: mcp-gate has zero cached JWKS signing keys
+          description: |
+            mcp-gate cannot validate any JWT — all authenticated requests will
+            be rejected. Check the JWKS endpoint reachability, Authentik health,
+            and mcp-gate logs for JWKS fetch errors.
+
+      # Warning: refresh failures are a liveness signal. The refresh goroutine
+      # increments mcpgate_jwks_refresh_errors_total on every failure. A single
+      # failure within 15 minutes is enough to alert — the default refresh
+      # interval is 1h, so multiple failures inside a window shorter than that
+      # indicates something is wrong even if keys are still cached.
+      - uid: mcp-gate-jwks-refresh-errors
+        title: mcp-gate JWKS Refresh Errors
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: increase(mcpgate_jwks_refresh_errors_total{job="mcp-gate"}[15m])
+              intervalMs: 1000
+              maxDataPoints: 43200
+              datasource:
+                type: prometheus
+                uid: prometheus
+          - refId: B
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              datasource:
+                type: __expr__
+                uid: __expr__
+          - refId: C
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        labels:
+          severity: warning
+          service: mcp-gate
+        annotations:
+          summary: mcp-gate JWKS refresh is failing
+          description: |
+            The JWKS refresh goroutine reported one or more failures in the last
+            15 minutes. Cached keys may still be serving validations, but the
+            cache is going stale. Check mcp-gate logs and JWKS endpoint
+            availability.
+
+      # Warning: key set has not rotated in 90 days. The gauge is primed on
+      # startup (auth.go:114) so this won't false-fire on a fresh container.
+      # If Authentik's signing key rotation schedule slips or the refresh is
+      # silently returning stale keys, this catches it.
+      - uid: mcp-gate-jwks-keys-stale
+        title: mcp-gate JWKS Keys Stale
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: time() - mcpgate_jwks_last_key_change_timestamp_seconds{job="mcp-gate"}
+              intervalMs: 1000
+              maxDataPoints: 43200
+              datasource:
+                type: prometheus
+                uid: prometheus
+          - refId: B
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              datasource:
+                type: __expr__
+                uid: __expr__
+          - refId: C
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [7776000]
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+        noDataState: OK
+        execErrState: OK
+        for: 1h
+        labels:
+          severity: warning
+          service: mcp-gate
+        annotations:
+          summary: mcp-gate JWKS key set has not rotated in 90+ days
+          description: |
+            The JWKS key set last changed more than 90 days ago. This may
+            indicate a stuck refresh that is silently returning the same keys,
+            or a longer-than-expected Authentik key rotation cadence. The
+            mcpgate_jwks_refresh_errors_total counter covers the liveness
+            side — this signal is about whether rotation is actually happening.

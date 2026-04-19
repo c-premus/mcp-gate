@@ -74,31 +74,6 @@ function proxyErrorRateStat(): StatPanel {
     );
 }
 
-function jwksKeysStat(): StatPanel {
-  return new StatPanel()
-    .title("JWKS Keys")
-    .description("Number of cached JWKS signing keys")
-    .datasource(PROMETHEUS)
-    .noValue("0")
-    .colorMode(BigValueColorMode.Value)
-    .thresholds(
-      new ThresholdsConfigBuilder()
-        .mode(ThresholdsMode.Absolute)
-        .steps([
-          { value: null as unknown as number, color: "red" },
-          { value: 1, color: "green" },
-        ])
-    )
-    .span(8)
-    .height(5)
-    .withTarget(
-      new PrometheusQuery()
-        .expr(`mcpgate_jwks_keys_loaded{${JOB_FILTER}}`)
-        .legendFormat("keys")
-        .refId("A")
-    );
-}
-
 function proxyLatencyTimeseries(): TimeseriesPanel {
   return new TimeseriesPanel()
     .title("Upstream Latency Percentiles")
@@ -166,7 +141,6 @@ export function proxyRow(): RowBuilder {
     .collapsed(true)
     .withPanel(proxyP95Stat())
     .withPanel(proxyErrorRateStat())
-    .withPanel(jwksKeysStat())
     .withPanel(proxyLatencyTimeseries())
     .withPanel(proxyStatusTimeseries());
 }
