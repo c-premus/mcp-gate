@@ -3,7 +3,7 @@
 
 services:
   mcp-gate:
-    image: cpremus/mcp-gate:latest
+    image: cpremus/mcp-gate:latest@sha256:b8ef6d907283958b942eef7ab5581c6a3c125a1799de102ba6aa8a9a704095f2
     ports:
       - "8080:8080"
       - "9090:9090"
