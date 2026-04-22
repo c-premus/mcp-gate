@@ -8,7 +8,7 @@ package otel
 import (
 	"context"
 	"fmt"
-	"strings"
+	"net/url"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -41,7 +41,11 @@ func Setup(ctx context.Context, cfg Config) (*Provider, error) {
 	opts := []otlptracehttp.Option{
 		otlptracehttp.WithEndpointURL(cfg.Endpoint),
 	}
-	if strings.HasPrefix(cfg.Endpoint, "http://") {
+	// Parse the endpoint and compare the normalized scheme. strings.HasPrefix
+	// on "http://" would miss "HTTP://" and fall through to TLS — which then
+	// fails to negotiate against a plain-HTTP collector with an opaque error.
+	// url.Parse lowercases the scheme so the comparison is stable.
+	if u, err := url.Parse(cfg.Endpoint); err == nil && u.Scheme == "http" {
 		opts = append(opts, otlptracehttp.WithInsecure())
 	}
 

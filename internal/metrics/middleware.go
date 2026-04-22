@@ -43,6 +43,19 @@ func RouteClassifier(r *http.Request) string {
 	}
 }
 
+// methodLabel maps an HTTP method to a bounded Prometheus label. Arbitrary
+// strings from a method-scanning client would otherwise create unbounded
+// series on mcpgate_http_requests_total.
+func methodLabel(m string) string {
+	switch m {
+	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete,
+		http.MethodPatch, http.MethodHead, http.MethodOptions:
+		return m
+	default:
+		return "OTHER"
+	}
+}
+
 // responseRecorder wraps http.ResponseWriter to capture the status code.
 // It implements http.Flusher (required for SSE streaming) and Unwrap()
 // (required for Go's ResponseController).
@@ -96,11 +109,20 @@ func Middleware(next http.Handler) http.Handler {
 
 		duration := time.Since(start).Seconds()
 		status := strconv.Itoa(rec.statusCode)
+		method := methodLabel(r.Method)
 
-		HTTPRequestsTotal.WithLabelValues(r.Method, route, status).Inc()
-		HTTPRequestDuration.WithLabelValues(r.Method, route, status).Observe(duration)
+		HTTPRequestsTotal.WithLabelValues(method, route, status).Inc()
+		HTTPRequestDuration.WithLabelValues(method, route, status).Observe(duration)
 
-		slog.Info("request",
+		// Successful healthz probes fire every 30s from Docker + Traefik +
+		// Prometheus target checks; at info level that's ~thousands of lines
+		// per day of pure noise in Loki. Drop them to debug so operators only
+		// see healthz when something is actually wrong (non-2xx status).
+		logFn := slog.Info
+		if route == "healthz" && rec.statusCode == http.StatusOK {
+			logFn = slog.Debug
+		}
+		logFn("request",
 			"method", r.Method,
 			"path", truncate(r.URL.Path, maxLoggedFieldBytes),
 			"status", rec.statusCode,

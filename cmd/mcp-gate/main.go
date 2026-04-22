@@ -32,16 +32,28 @@ var version = "dev"
 
 // runHealthcheck performs a local HTTP GET against /healthz and returns a
 // process exit code. It is split out so defer can run before process exit.
+//
+// The dial target is derived from LISTEN_ADDR: when the host is empty or a
+// wildcard (0.0.0.0, ::), localhost is used because wildcard binds aren't
+// valid dial targets. When LISTEN_ADDR specifies a concrete IP
+// (e.g. 172.20.0.133:8080), that host is dialed directly — hardcoding
+// localhost would make the healthcheck fail forever on such configs and
+// trigger rollback.
 func runHealthcheck() int {
 	addr := os.Getenv("LISTEN_ADDR")
 	if addr == "" {
 		addr = "0.0.0.0:8080"
 	}
-	_, port, err := net.SplitHostPort(addr)
+	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return 1
 	}
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://localhost:"+port+"/healthz", http.NoBody)
+	switch host {
+	case "", "0.0.0.0", "::":
+		host = "localhost"
+	}
+	target := "http://" + net.JoinHostPort(host, port) + "/healthz"
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, target, http.NoBody)
 	if err != nil {
 		return 1
 	}
