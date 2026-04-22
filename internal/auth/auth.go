@@ -232,12 +232,20 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		claims := &Claims{}
 		parsed, err := m.parser.ParseWithClaims(token, claims, m.kf.Keyfunc)
 		if err != nil {
+			// Log a classified category rather than err.Error(): some jwt/v5
+			// parse failures (malformed base64, JSON unmarshal errors) can
+			// echo token bytes back through the error string, which would
+			// then land in Loki. Classification is enough to diagnose with
+			// the metrics counter providing volume; the raw error is kept
+			// at Debug for local troubleshooting.
+			category := classifyJWTError(err)
 			slog.Warn("token rejected",
 				"reason", "validation_failed",
+				"category", category,
 				"client_ip", clientIP,
-				"error", err,
 				"jti", claims.ID,
 			)
+			slog.Debug("token rejected (detail)", "category", category, "error", err)
 			metrics.AuthValidationsTotal.WithLabelValues("invalid_token").Inc()
 			span.SetAttributes(attribute.String("auth.outcome", "invalid_token"))
 			m.writeInvalidTokenError(w)
@@ -325,6 +333,46 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 // sanitizeQuotedString escapes characters for use in RFC 7235 quoted-string
 // values. In addition to escaping backslash and double-quote (the two
 // characters that carry meaning inside a quoted-string), it strips CR, LF,
+// classifyJWTError maps a jwt/v5 parse/validation error to a fixed-cardinality
+// category string safe to log at Warn. The jwt/v5 library's err.Error() can
+// echo token bytes in some failure modes (malformed base64, JSON unmarshal);
+// returning a category instead of the raw error keeps those bytes out of
+// Loki. Order matters: the more specific errors come first because jwt/v5
+// wraps some of them under more generic ones.
+func classifyJWTError(err error) string {
+	switch {
+	case err == nil:
+		return "none"
+	case errors.Is(err, jwt.ErrTokenExpired):
+		return "expired"
+	case errors.Is(err, jwt.ErrTokenNotValidYet):
+		return "not_yet_valid"
+	case errors.Is(err, jwt.ErrTokenUsedBeforeIssued):
+		return "iat_in_future"
+	case errors.Is(err, jwt.ErrTokenSignatureInvalid):
+		return "signature_invalid"
+	case errors.Is(err, jwt.ErrTokenInvalidAudience):
+		return "wrong_audience"
+	case errors.Is(err, jwt.ErrTokenInvalidIssuer):
+		return "wrong_issuer"
+	case errors.Is(err, jwt.ErrTokenInvalidSubject):
+		return "wrong_subject"
+	case errors.Is(err, jwt.ErrTokenInvalidId):
+		return "wrong_jti"
+	case errors.Is(err, jwt.ErrTokenRequiredClaimMissing):
+		return "required_claim_missing"
+	case errors.Is(err, jwt.ErrTokenInvalidClaims):
+		return "invalid_claims"
+	case errors.Is(err, jwt.ErrTokenUnverifiable):
+		// Covers missing keyfunc, unknown kid, unsupported alg.
+		return "unverifiable"
+	case errors.Is(err, jwt.ErrTokenMalformed):
+		return "malformed"
+	default:
+		return "other"
+	}
+}
+
 // NUL, and other C0 control bytes (< 0x20 except tab) as defense-in-depth
 // against header-splitting if a caller ever reflects untrusted input here.
 // Current call sites pass operator-controlled config only; this keeps the

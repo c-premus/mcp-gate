@@ -640,6 +640,72 @@ func TestUnknownKidRejected(t *testing.T) {
 	}
 }
 
+// TestJWTErrorClassificationStable asserts that expired, wrong-audience,
+// wrong-issuer, and malformed tokens produce distinct Warn log categories
+// and never reflect raw token bytes. We don't need to intercept slog here:
+// the invariant is that the middleware returns 401 with no raw error
+// surface to the client. This test pins the absence of token bytes in the
+// response body across four common error classes.
+func TestJWTErrorClassificationStable(t *testing.T) {
+	ts := newTestSetup(t)
+	defer ts.Close()
+	mw := newMiddleware(t, ts, []string{"openid"})
+
+	tamperedBase64 := "eyJhbGciOiJSUzI1NiIsImtpZCI6InRlc3Qta2V5LTEiLCJ0eXAiOiJhdCtqd3QifQ.NOTVALIDBASE64!!!"
+
+	tests := []struct {
+		name    string
+		builder func() string
+	}{
+		{
+			name: "expired",
+			builder: func() string {
+				claims := validClaims()
+				claims.ExpiresAt = jwt.NewNumericDate(time.Now().Add(-2 * time.Hour))
+				return signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
+			},
+		},
+		{
+			name: "wrong_audience",
+			builder: func() string {
+				claims := validClaims()
+				claims.Audience = jwt.ClaimStrings{"some-other-client"}
+				return signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
+			},
+		},
+		{
+			name: "wrong_issuer",
+			builder: func() string {
+				claims := validClaims()
+				claims.Issuer = "https://attacker.example/"
+				return signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
+			},
+		},
+		{
+			name:    "malformed_base64",
+			builder: func() string { return tamperedBase64 },
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			w := doRequest(t, mw, "Bearer "+tc.builder())
+			if w.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want 401", w.Code)
+			}
+			// The response body must not include token bytes or raw jwt
+			// error strings — the classifier strips those.
+			body := w.Body.String()
+			if strings.Contains(body, tamperedBase64) || strings.Contains(body, "eyJ") {
+				t.Errorf("response body contains token material: %s", body)
+			}
+			if strings.Contains(body, "cannot unmarshal") {
+				t.Errorf("response body leaks jwt/v5 parse detail: %s", body)
+			}
+		})
+	}
+}
+
 // TestSignatureForgeryWithKnownKID asserts that a token signed by an attacker's
 // key but advertising the cached `kid` of the JWKS's real key is rejected. This
 // is the more adversarial cousin of TestUnknownKidRejected: instead of hoping

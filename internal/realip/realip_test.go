@@ -259,6 +259,35 @@ func TestExtract_RemoteAddrNoPort(t *testing.T) {
 	}
 }
 
+// TestExtract_EmptyRemoteAddr locks in the defense-in-depth behavior that
+// Extract never returns the empty string. In production Go's HTTP server
+// always populates RemoteAddr, so this covers the degenerate case where a
+// test harness or alternative transport leaves it unset — downstream
+// consumers (rate-limit map key, slog client_ip field) get a stable
+// sentinel instead of a shared empty-string bucket.
+func TestExtract_EmptyRemoteAddr(t *testing.T) {
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
+	r.RemoteAddr = ""
+
+	got := Extract(r, nil)
+	if got != "unknown" {
+		t.Errorf("Extract on empty RemoteAddr = %q, want %q", got, "unknown")
+	}
+}
+
+// TestExtract_UnparseableRemoteAddr covers a RemoteAddr that isn't an IP —
+// e.g. a Unix socket peer. Extract must not reflect the raw bytes into metric
+// labels or log keys; it falls through to the sentinel.
+func TestExtract_UnparseableRemoteAddr(t *testing.T) {
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
+	r.RemoteAddr = "@" // unix-socket-ish garbage that's not an IP
+
+	got := Extract(r, nil)
+	if got != "unknown" {
+		t.Errorf("Extract on non-IP RemoteAddr = %q, want %q", got, "unknown")
+	}
+}
+
 // --- ParseCIDRs tests ---
 
 func TestParseCIDRs_Empty(t *testing.T) {

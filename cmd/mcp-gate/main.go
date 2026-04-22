@@ -287,9 +287,14 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *
 	}
 	mux.HandleFunc("GET /.well-known/oauth-protected-resource", metadataHandler)
 
+	// /healthz is reachable without authentication (Docker HEALTHCHECK, Traefik
+	// probes), so the response bodies are deliberately generic — the status
+	// code carries the signal. "jwks not ready" / subsystem-specific strings
+	// would fingerprint the product and telegraph Authentik outages to any
+	// unauthenticated probe.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if !authMW.IsReady(r.Context()) {
-			http.Error(w, "jwks not ready", http.StatusServiceUnavailable)
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		w.WriteHeader(http.StatusOK)

@@ -441,6 +441,72 @@ func TestStreamingFlushesImmediately(t *testing.T) {
 	}
 }
 
+// TestClientSuppliedXForwardedHeadersNotReflected asserts that a client
+// cannot smuggle X-Forwarded-Host / X-Forwarded-Proto / X-Forwarded-For
+// values through to the upstream. Go's httputil.ReverseProxy strips these
+// from the outbound request before Rewrite runs, and SetXForwarded then
+// sets them from r.In.RemoteAddr / r.In.Host / r.In.TLS. A regression to a
+// custom proxy implementation that skipped the stripping step would allow
+// header smuggling; this test locks the invariant in.
+func TestClientSuppliedXForwardedHeadersNotReflected(t *testing.T) {
+	var (
+		gotXFH   string
+		gotXFP   string
+		gotXFF   string
+		hostSeen string
+	)
+	upstream := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		gotXFH = r.Header.Get("X-Forwarded-Host")
+		gotXFP = r.Header.Get("X-Forwarded-Proto")
+		gotXFF = r.Header.Get("X-Forwarded-For")
+		hostSeen = r.Host
+	}))
+	defer upstream.Close()
+
+	proxyServer := httptest.NewServer(proxy.New(mustParseURL(t, upstream.URL), proxy.DefaultTransportConfig()))
+	defer proxyServer.Close()
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, proxyServer.URL+"/", http.NoBody)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	// Attacker-controlled forwarding headers:
+	req.Header.Set("X-Forwarded-Host", "admin.internal.example")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Forwarded-For", "8.8.8.8, 9.9.9.9")
+	req.Header.Set("Forwarded", `for="attacker"; host="evil.example"`)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	if gotXFH == "admin.internal.example" {
+		t.Errorf("X-Forwarded-Host reflects client-supplied value: %q", gotXFH)
+	}
+	if gotXFP == "https" {
+		t.Errorf("X-Forwarded-Proto reflects client-supplied value: %q", gotXFP)
+	}
+	if strings.Contains(gotXFF, "8.8.8.8") || strings.Contains(gotXFF, "9.9.9.9") {
+		t.Errorf("X-Forwarded-For chain reflects client-supplied entries: %q", gotXFF)
+	}
+	// httputil also strips the RFC 7239 Forwarded header before Rewrite.
+	// There's no API to re-inject it, so it must not appear upstream.
+	if got := resp.Header.Get("Forwarded"); got != "" {
+		t.Errorf("Forwarded header leaked upstream: %q", got)
+	}
+	// XFH should be set from r.In.Host, which reflects the proxy-facing
+	// hostname — not from the attacker-supplied header.
+	if gotXFH == "" {
+		t.Error("X-Forwarded-Host empty; expected it to be set from r.In.Host")
+	}
+	// Upstream's r.Host should be the upstream URL's host, not the client's forged input.
+	if hostSeen == "admin.internal.example" {
+		t.Errorf("upstream Host header forged by client: %q", hostSeen)
+	}
+}
+
 func TestCustomTransportConfig_DialTimeout(t *testing.T) {
 	tc := proxy.DefaultTransportConfig()
 	tc.DialTimeout = time.Nanosecond // Impossibly short

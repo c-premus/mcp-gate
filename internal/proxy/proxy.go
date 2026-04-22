@@ -70,6 +70,14 @@ func New(upstreamURL *url.URL, tc TransportConfig) *httputil.ReverseProxy {
 		Transport: otelhttp.NewTransport(baseTransport),
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.SetURL(upstreamURL)
+			// SetXForwarded uses r.In.RemoteAddr / r.In.Host / r.In.TLS to set
+			// X-Forwarded-{For,Host,Proto} on the outbound request. Go's
+			// stdlib (reverseproxy.go) already strips any CLIENT-supplied
+			// Forwarded / X-Forwarded-* headers from r.Out before Rewrite
+			// runs, so SetXForwarded cannot reflect client-controlled values
+			// — the outbound headers always reflect the direct peer (Traefik
+			// in production). No trusted-proxy gating needed here; realip
+			// handles the XFF walk separately for rate-limit keying and logs.
 			r.SetXForwarded()
 			r.Out.Header.Del("Authorization") // User JWT must not reach upstream
 			r.Out.Header.Del("Cookie")        // Prevent session/CSRF token leakage

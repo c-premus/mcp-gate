@@ -39,6 +39,14 @@ func Middleware(trustedProxies []*net.IPNet) func(http.Handler) http.Handler {
 	}
 }
 
+// unknownIP is returned when the request has no parseable remote address.
+// Using a sentinel instead of "" keeps rate-limit bucket keys stable for
+// downstream consumers — otherwise every anomalous request would share the
+// empty-string bucket, giving one misbehaving client a lever to DoS all
+// unresolvable requests. In practice Go's HTTP server always populates
+// RemoteAddr, so this sentinel is strictly defense-in-depth.
+const unknownIP = "unknown"
+
 // Extract returns the real client IP for the given request. When the
 // direct peer (RemoteAddr) falls within a trusted proxy CIDR, it checks
 // X-Forwarded-For and X-Real-IP headers. Otherwise it returns RemoteAddr
@@ -49,10 +57,16 @@ func Middleware(trustedProxies []*net.IPNet) func(http.Handler) http.Handler {
 // is a fallback — some proxies (e.g. Traefik) set it to the direct peer
 // (a proxy IP), not the end client. In both cases, IPs that fall within
 // trusted proxy CIDRs are skipped to avoid returning a proxy address.
+//
+// Extract never returns the empty string: an unparseable or absent
+// RemoteAddr maps to the unknownIP sentinel.
 func Extract(r *http.Request, trustedProxies []*net.IPNet) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = r.RemoteAddr
+	}
+	if host == "" {
+		return unknownIP
 	}
 
 	if len(trustedProxies) > 0 {
@@ -99,7 +113,10 @@ func Extract(r *http.Request, trustedProxies []*net.IPNet) string {
 	if parsed := net.ParseIP(host); parsed != nil {
 		return parsed.String()
 	}
-	return host
+	// Unparseable host (e.g. Unix socket "@", or a bare hostname): fall
+	// through to the sentinel rather than reflecting attacker-shaped junk
+	// into metric labels or log keys.
+	return unknownIP
 }
 
 func ipInNets(ip net.IP, nets []*net.IPNet) bool {
