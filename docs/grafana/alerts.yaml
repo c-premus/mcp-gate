@@ -143,7 +143,11 @@ groups:
               datasource:
                 type: __expr__
                 uid: __expr__
-        noDataState: OK
+        # noDataState: Alerting — a scrape gap must not silently suppress a
+        # refresh-failure signal. The target-down alert below covers the same
+        # scrape gap at 5m, but this flip closes the sub-5m window where the
+        # scrape is absent AND refreshes are failing.
+        noDataState: Alerting
         execErrState: Alerting
         for: 5m
         labels:
@@ -228,3 +232,226 @@ groups:
             or a longer-than-expected Authentik key rotation cadence. The
             mcpgate_jwks_refresh_errors_total counter covers the liveness
             side — this signal is about whether rotation is actually happening.
+
+  - orgId: 1
+    name: mcp-gate-health
+    folder: mcp-gate
+    interval: 1m
+    rules:
+      # Critical: Prometheus cannot scrape mcp-gate. Without this, JWKS and
+      # upstream alerts flip to NoData; this rule is the single source of
+      # truth for "is mcp-gate reachable by the monitoring stack".
+      - uid: mcp-gate-target-down
+        title: mcp-gate Target Down
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: up{job="mcp-gate"}
+              intervalMs: 1000
+              maxDataPoints: 43200
+              datasource:
+                type: prometheus
+                uid: prometheus
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              datasource:
+                type: __expr__
+                uid: __expr__
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: lt
+                    params: [1]
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 5m
+        labels:
+          severity: critical
+          service: mcp-gate
+        annotations:
+          summary: mcp-gate Prometheus target is down
+          description: |
+            Prometheus has not scraped mcp-gate for at least 5 minutes. The
+            container may be crashed, the metrics port blocked, or the network
+            path to the scrape target broken. All other mcp-gate alerts are
+            effectively silenced until this is resolved.
+
+      # Warning: upstream (mcp-grafana) is returning 5xx for >10% of requests.
+      # Symptoms: service-account token rotation missed, mcp-grafana OOM,
+      # upstream Grafana unavailable. The status_code label comes from the
+      # proxy's ModifyResponse / ErrorHandler paths (see internal/proxy).
+      - uid: mcp-gate-upstream-errors
+        title: mcp-gate Upstream Error Ratio
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: |
+                sum(rate(mcpgate_proxy_requests_total{job="mcp-gate",status_code=~"5.."}[5m]))
+                /
+                clamp_min(sum(rate(mcpgate_proxy_requests_total{job="mcp-gate"}[5m])), 0.001)
+              intervalMs: 1000
+              maxDataPoints: 43200
+              datasource:
+                type: prometheus
+                uid: prometheus
+          - refId: B
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              datasource:
+                type: __expr__
+                uid: __expr__
+          - refId: C
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0.1]
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+        # noDataState: OK — no traffic = no error ratio, don't wake anyone.
+        # target-down covers the "mcp-gate itself is silent" case.
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        labels:
+          severity: warning
+          service: mcp-gate
+        annotations:
+          summary: mcp-gate upstream errors exceed 10%
+          description: |
+            More than 10% of proxied requests returned 5xx for 10 minutes.
+            Check mcp-grafana container health, the Grafana service-account
+            token in Vault, and Grafana itself. `clamp_min` on the denominator
+            prevents division-by-zero flutter during low-traffic windows.
+
+      # Warning: invalid-token rate spike. Catches Authentik key rotation,
+      # EXPECTED_AUDIENCE drift, or a broken Claude.ai client — failure modes
+      # that JWKSRefreshErrorsTotal will NOT see (Authentik can reply 200 with
+      # a changed keyset faster than mcp-gate polls).
+      - uid: mcp-gate-auth-failures
+        title: mcp-gate Auth Failure Burst
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: sum(rate(mcpgate_auth_validations_total{job="mcp-gate",outcome="invalid_token"}[5m]))
+              intervalMs: 1000
+              maxDataPoints: 43200
+              datasource:
+                type: prometheus
+                uid: prometheus
+          - refId: B
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              datasource:
+                type: __expr__
+                uid: __expr__
+          - refId: C
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [1]
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        labels:
+          severity: warning
+          service: mcp-gate
+        annotations:
+          summary: mcp-gate invalid-token rate exceeds 1/s
+          description: |
+            mcp-gate is rejecting more than 1 token per second as invalid for
+            10 minutes. Likely causes: Authentik signing-key rotation that
+            mcp-gate hasn't refreshed yet, EXPECTED_AUDIENCE drift after a
+            provider reconfig, or a misconfigured Claude.ai connector. Check
+            recent Authentik changes and the mcp-gate logs.

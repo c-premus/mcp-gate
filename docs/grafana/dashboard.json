@@ -1172,6 +1172,337 @@
       "id": 0,
       "panels": [
         {
+          "type": "stat",
+          "transparent": false,
+          "repeatDirection": "h",
+          "title": "Goroutines",
+          "description": "Current goroutine count. Sustained growth suggests a goroutine leak.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "value": null,
+                    "color": "green"
+                  },
+                  {
+                    "value": 1000,
+                    "color": "yellow"
+                  },
+                  {
+                    "value": 5000,
+                    "color": "red"
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "graphMode": "area",
+            "colorMode": "value",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "wideLayout": true,
+            "showPercentChange": false,
+            "reduceOptions": {
+              "calcs": []
+            },
+            "percentChangeColorMode": "standard",
+            "orientation": "auto"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 0,
+            "y": 60
+          },
+          "targets": [
+            {
+              "expr": "go_goroutines{job=\"mcp-gate\"}",
+              "refId": "A",
+              "legendFormat": "goroutines"
+            }
+          ]
+        },
+        {
+          "type": "stat",
+          "transparent": false,
+          "repeatDirection": "h",
+          "title": "FD Utilization",
+          "description": "Open file descriptors as fraction of process_max_fds. Approaches 1.0 = FD exhaustion imminent.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "noValue": "0",
+              "decimals": 2,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "value": null,
+                    "color": "green"
+                  },
+                  {
+                    "value": 0.5,
+                    "color": "yellow"
+                  },
+                  {
+                    "value": 0.8,
+                    "color": "red"
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "graphMode": "area",
+            "colorMode": "value",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "wideLayout": true,
+            "showPercentChange": false,
+            "reduceOptions": {
+              "calcs": []
+            },
+            "percentChangeColorMode": "standard",
+            "orientation": "auto"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 6,
+            "y": 60
+          },
+          "targets": [
+            {
+              "expr": "process_open_fds{job=\"mcp-gate\"} / process_max_fds{job=\"mcp-gate\"}",
+              "refId": "A",
+              "legendFormat": "fd util"
+            }
+          ]
+        },
+        {
+          "type": "stat",
+          "transparent": false,
+          "repeatDirection": "h",
+          "title": "Resident Memory",
+          "description": "process_resident_memory_bytes. Sustained growth without plateau suggests a memory leak.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "noValue": "0"
+            },
+            "overrides": []
+          },
+          "options": {
+            "graphMode": "area",
+            "colorMode": "value",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "wideLayout": true,
+            "showPercentChange": false,
+            "reduceOptions": {
+              "calcs": []
+            },
+            "percentChangeColorMode": "standard",
+            "orientation": "auto"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 12,
+            "y": 60
+          },
+          "targets": [
+            {
+              "expr": "process_resident_memory_bytes{job=\"mcp-gate\"}",
+              "refId": "A",
+              "legendFormat": "rss"
+            }
+          ]
+        },
+        {
+          "type": "stat",
+          "transparent": false,
+          "repeatDirection": "h",
+          "title": "GC Pause (rate)",
+          "description": "Sum of GC pause durations per second. High values indicate GC pressure.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "noValue": "0",
+              "decimals": 3,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "value": null,
+                    "color": "green"
+                  },
+                  {
+                    "value": 0.05,
+                    "color": "yellow"
+                  },
+                  {
+                    "value": 0.1,
+                    "color": "red"
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "graphMode": "area",
+            "colorMode": "value",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "wideLayout": true,
+            "showPercentChange": false,
+            "reduceOptions": {
+              "calcs": []
+            },
+            "percentChangeColorMode": "standard",
+            "orientation": "auto"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 18,
+            "y": 60
+          },
+          "targets": [
+            {
+              "expr": "rate(go_gc_duration_seconds_sum{job=\"mcp-gate\"}[$__rate_interval])",
+              "refId": "A",
+              "legendFormat": "gc pause/s"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "transparent": false,
+          "repeatDirection": "h",
+          "title": "Goroutines Over Time",
+          "description": "Goroutine count over time — stable baseline + spikes during bursts is healthy; monotonic growth is a leak.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 65
+          },
+          "targets": [
+            {
+              "expr": "go_goroutines{job=\"mcp-gate\"}",
+              "refId": "A",
+              "legendFormat": "goroutines"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "transparent": false,
+          "repeatDirection": "h",
+          "title": "Memory",
+          "description": "Resident set size vs Go heap allocations. RSS growth without heap growth suggests CGO/stack leaks.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 65
+          },
+          "targets": [
+            {
+              "expr": "process_resident_memory_bytes{job=\"mcp-gate\"}",
+              "refId": "A",
+              "legendFormat": "rss"
+            },
+            {
+              "expr": "go_memstats_heap_alloc_bytes{job=\"mcp-gate\"}",
+              "refId": "B",
+              "legendFormat": "heap alloc"
+            },
+            {
+              "expr": "go_memstats_heap_inuse_bytes{job=\"mcp-gate\"}",
+              "refId": "C",
+              "legendFormat": "heap in-use"
+            }
+          ]
+        }
+      ],
+      "title": "Runtime",
+      "gridPos": {
+        "x": 0,
+        "y": 59,
+        "h": 1,
+        "w": 24
+      }
+    },
+    {
+      "type": "row",
+      "collapsed": true,
+      "id": 0,
+      "panels": [
+        {
           "type": "table",
           "transparent": false,
           "repeatDirection": "h",
@@ -1185,7 +1516,7 @@
             "h": 12,
             "w": 24,
             "x": 0,
-            "y": 60
+            "y": 74
           },
           "targets": [
             {
@@ -1201,7 +1532,7 @@
       "title": "Trace Explorer",
       "gridPos": {
         "x": 0,
-        "y": 59,
+        "y": 73,
         "h": 1,
         "w": 24
       }
@@ -1214,7 +1545,7 @@
       "title": "Logs",
       "gridPos": {
         "x": 0,
-        "y": 72,
+        "y": 86,
         "h": 1,
         "w": 24
       }
@@ -1251,7 +1582,7 @@
         "h": 5,
         "w": 24,
         "x": 0,
-        "y": 73
+        "y": 87
       },
       "targets": [
         {
@@ -1286,7 +1617,7 @@
         "h": 16,
         "w": 24,
         "x": 0,
-        "y": 78
+        "y": 92
       },
       "targets": [
         {
