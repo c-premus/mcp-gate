@@ -71,7 +71,9 @@ jobs:
         run: go mod download
 
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        # Pinned version — @latest is a supply-chain replay surface and not
+        # visible to Renovate. Bump explicitly when needed.
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.2.0
 
       - name: Build binary for vulnerability scan
         run: go build -o bin/mcp-gate ./cmd/mcp-gate

@@ -79,7 +79,9 @@ func New(upstreamURL *url.URL, tc TransportConfig) *httputil.ReverseProxy {
 			q.Del("access_token")
 			r.Out.URL.RawQuery = q.Encode()
 
-			// Store start time for duration tracking
+			// Store start time for duration tracking on r.Out.
+			// httputil.ReverseProxy passes pr.Out (as outreq) to both ErrorHandler
+			// and ModifyResponse, so a single stash covers both paths.
 			r.Out = r.Out.WithContext(context.WithValue(r.Out.Context(), contextKey{}, time.Now()))
 		},
 		FlushInterval: -1, // Flush immediately for SSE/streamable-http

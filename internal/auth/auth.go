@@ -87,11 +87,15 @@ func NewMiddleware(cfg Config) (*Middleware, error) {
 		return nil, fmt.Errorf("JWKS initial fetch: %w", err)
 	}
 
-	// Wrap in aggregating client with rate-limited unknown-kid refresh
+	// Wrap in aggregating client with rate-limited unknown-kid refresh.
+	// RateLimitWaitMax is bounded at 5s so an attacker flooding unknown-kid
+	// tokens cannot hold request goroutines (and concurrent-limit slots) for
+	// a full minute each. 5s is still well above the legitimate post-rotation
+	// race window where a freshly issued token's kid might not yet be cached.
 	client, err := jwkset.NewHTTPClient(jwkset.HTTPClientOptions{
 		HTTPURLs:          map[string]jwkset.Storage{cfg.JWKSURI: store},
 		RefreshUnknownKID: rate.NewLimiter(rate.Every(time.Minute), 1),
-		RateLimitWaitMax:  time.Minute,
+		RateLimitWaitMax:  5 * time.Second,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("JWKS HTTP client: %w", err)
@@ -105,7 +109,7 @@ func NewMiddleware(cfg Config) (*Middleware, error) {
 		return nil, fmt.Errorf("keyfunc init: %w", err)
 	}
 
-	keys, err := client.KeyReadAll(context.Background())
+	keys, err := client.KeyReadAll(cfg.Ctx)
 	if err != nil {
 		// Non-fatal: the initial NewStorageFromHTTP fetch already succeeded,
 		// so at this point an error from the aggregating client is unexpected.
@@ -119,9 +123,10 @@ func NewMiddleware(cfg Config) (*Middleware, error) {
 	metrics.JWKSKeysLoaded.Set(float64(len(keys)))
 	metrics.JWKSLastKeyChangeTimestamp.Set(float64(time.Now().Unix()))
 
-	// Start the metrics polling goroutine. Sample at half the refresh
-	// interval (Nyquist) but never faster than every 5 minutes to keep
-	// background load trivial.
+	// Poll at half the refresh interval (Nyquist) — whichever is smaller, so
+	// the gauge keeps up with short refresh intervals — but cap at 5 minutes
+	// so very long refresh intervals still detect key changes promptly.
+	// For RefreshInterval = 0 (misconfig caught upstream) fall back to 1m.
 	pollInterval := min(cfg.RefreshInterval/2, 5*time.Minute)
 	if pollInterval <= 0 {
 		pollInterval = time.Minute

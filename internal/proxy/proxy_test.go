@@ -10,10 +10,26 @@ import (
 	"testing"
 	"time"
 
+	"github.com/c-premus/mcp-gate/internal/metrics"
 	"github.com/c-premus/mcp-gate/internal/proxy"
+	dto "github.com/prometheus/client_model/go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 )
+
+// histogramSampleCount reads the current sample count from a Prometheus histogram.
+// Used to verify duration observations fire on specific code paths.
+func histogramSampleCount(t *testing.T, h interface {
+	Write(*dto.Metric) error
+},
+) uint64 {
+	t.Helper()
+	m := &dto.Metric{}
+	if err := h.Write(m); err != nil {
+		t.Fatalf("histogram Write: %v", err)
+	}
+	return m.GetHistogram().GetSampleCount()
+}
 
 // echoUpstream returns headers and URL received by the upstream, as JSON.
 func echoUpstream() *httptest.Server {
@@ -166,6 +182,35 @@ func TestErrorHandlerReturns502(t *testing.T) {
 	}
 	if body["error"] != "upstream_error" {
 		t.Errorf("error = %q, want upstream_error", body["error"])
+	}
+}
+
+// TestErrorHandlerObservesDuration verifies that ProxyRequestDuration is observed
+// on the 502 error path. The Rewrite callback stashes the start time on both r.In
+// and r.Out because httputil.ReverseProxy passes pr.In (not pr.Out) to ErrorHandler;
+// a regression that drops the r.In stash would silently stop observing error-path
+// latencies while ProxyRequestsTotal continues to increment.
+func TestErrorHandlerObservesDuration(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		// Handler never runs — Hijack and close to trigger ErrorHandler in the proxy.
+	}))
+	// Close immediately so dial fails.
+	upstream.Close()
+
+	before := histogramSampleCount(t, metrics.ProxyRequestDuration)
+
+	p := proxy.New(mustParseURL(t, upstream.URL), proxy.DefaultTransportConfig())
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
+	w := httptest.NewRecorder()
+	p.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d", w.Code)
+	}
+
+	after := histogramSampleCount(t, metrics.ProxyRequestDuration)
+	if after != before+1 {
+		t.Fatalf("ProxyRequestDuration sample count = %d, want %d (error path did not observe duration)", after, before+1)
 	}
 }
 

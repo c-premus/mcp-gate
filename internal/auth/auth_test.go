@@ -653,9 +653,18 @@ func TestLargeTokenRejected(t *testing.T) {
 	}
 }
 
+// TestMalformedJWKSResponse asserts mcp-gate's behavior when the JWKS endpoint
+// returns a well-formed JSON object that lacks the `keys` array. Two outcomes
+// are both acceptable for safety — either path must gate traffic at /healthz:
+//
+//   - NewMiddleware returns an error (initialization fails, container never
+//     becomes healthy, Traefik keeps old instance).
+//   - NewMiddleware succeeds with zero keys loaded; IsReady must then return
+//     false so /healthz responds 503 until keys actually load.
+//
+// The prior version of this test asserted neither outcome.
 func TestMalformedJWKSResponse(t *testing.T) {
-	// JWKS endpoint returns invalid JSON
-	badServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	badServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"not": "jwks"}`))
 	}))
@@ -664,7 +673,7 @@ func TestMalformedJWKSResponse(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	_, err := auth.NewMiddleware(auth.Config{
+	mw, err := auth.NewMiddleware(auth.Config{
 		Ctx:              ctx,
 		JWKSURI:          badServer.URL,
 		RefreshInterval:  time.Hour,
@@ -675,13 +684,17 @@ func TestMalformedJWKSResponse(t *testing.T) {
 		Realm:            testRealm,
 		ScopesSupported:  "openid profile",
 	})
-	// keyfunc may or may not error on empty keys — but middleware should not panic
+
 	if err != nil {
-		// Expected — JWKS has no valid keys
+		// Path 1: initialization refused. Safe.
 		return
 	}
-	// If it doesn't error, IsReady should return false (no keys loaded)
-	// This is acceptable — the health check gate prevents traffic
+
+	// Path 2: initialization succeeded with zero keys. IsReady MUST refuse so
+	// /healthz stays 503 until real keys load.
+	if mw.IsReady(ctx) {
+		t.Fatal("IsReady returned true despite JWKS having no valid keys; /healthz would serve 200 with an empty keyset")
+	}
 }
 
 func TestErrorResponseNoInternalDetails(t *testing.T) {
