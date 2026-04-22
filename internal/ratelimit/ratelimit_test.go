@@ -353,16 +353,21 @@ func TestConcurrentLimiter_AllowsUnderLimit(t *testing.T) {
 func TestConcurrentLimiter_RejectsOverPerIPLimit(t *testing.T) {
 	cl := ratelimit.NewConcurrentLimiter(2, 100)
 
+	// entered signals when a handler has been admitted past the limiter and
+	// is actually blocking inside `next`. Replacing the old time.Sleep(50ms)
+	// with this channel handshake means the test can't flake on slow CI:
+	// we wait until we observe both goroutines in the handler before firing
+	// the rejection probe.
+	entered := make(chan struct{}, 2)
 	block := make(chan struct{})
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		entered <- struct{}{}
 		<-block
 		w.WriteHeader(http.StatusOK)
 	})
 	handler := realip.Middleware(nil)(cl.Middleware(next))
 
 	var wg sync.WaitGroup
-
-	// Start 2 blocking requests
 	for range 2 {
 		wg.Go(func() {
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
@@ -372,10 +377,16 @@ func TestConcurrentLimiter_RejectsOverPerIPLimit(t *testing.T) {
 		})
 	}
 
-	// Let goroutines enter the handler
-	time.Sleep(50 * time.Millisecond)
+	// Wait until both goroutines have entered the handler.
+	for range 2 {
+		select {
+		case <-entered:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for blocking goroutines to enter the handler")
+		}
+	}
 
-	// 3rd request should be rejected
+	// 3rd request should be rejected.
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 	req.RemoteAddr = "203.0.113.1:12345"
 	w := httptest.NewRecorder()
@@ -392,16 +403,16 @@ func TestConcurrentLimiter_RejectsOverPerIPLimit(t *testing.T) {
 func TestConcurrentLimiter_RejectsOverTotalLimit(t *testing.T) {
 	cl := ratelimit.NewConcurrentLimiter(100, 2)
 
+	entered := make(chan struct{}, 2)
 	block := make(chan struct{})
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		entered <- struct{}{}
 		<-block
 		w.WriteHeader(http.StatusOK)
 	})
 	handler := realip.Middleware(nil)(cl.Middleware(next))
 
 	var wg sync.WaitGroup
-
-	// Start 2 requests from different IPs to hit total limit
 	for i := range 2 {
 		wg.Go(func() {
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
@@ -411,9 +422,16 @@ func TestConcurrentLimiter_RejectsOverTotalLimit(t *testing.T) {
 		})
 	}
 
-	time.Sleep(50 * time.Millisecond)
+	// Wait until both goroutines from distinct IPs have entered the handler.
+	for range 2 {
+		select {
+		case <-entered:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for blocking goroutines to enter the handler")
+		}
+	}
 
-	// 3rd request from a new IP should be rejected (total limit reached)
+	// 3rd request from a new IP should be rejected (total limit reached).
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 	req.RemoteAddr = "203.0.113.99:12345"
 	w := httptest.NewRecorder()
@@ -488,8 +506,10 @@ func TestConcurrentLimiter_ResponseFormat(t *testing.T) {
 func TestConcurrentLimiter_DifferentIPsIndependent(t *testing.T) {
 	cl := ratelimit.NewConcurrentLimiter(1, 100)
 
+	entered := make(chan struct{}, 2)
 	block := make(chan struct{})
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		entered <- struct{}{}
 		<-block
 		w.WriteHeader(http.StatusOK)
 	})
@@ -497,7 +517,7 @@ func TestConcurrentLimiter_DifferentIPsIndependent(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	// Block one request from IP A
+	// Block one request from IP A.
 	wg.Go(func() {
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 		req.RemoteAddr = "203.0.113.1:12345"
@@ -505,9 +525,14 @@ func TestConcurrentLimiter_DifferentIPsIndependent(t *testing.T) {
 		handler.ServeHTTP(w, req)
 	})
 
-	time.Sleep(50 * time.Millisecond)
+	// Wait for IP A to enter the handler.
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for IP A to enter handler")
+	}
 
-	// IP B should still be allowed
+	// IP B is a different client — the per-IP=1 limit should NOT apply to it.
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 	req.RemoteAddr = "203.0.113.2:12345"
 	done := make(chan int, 1)
@@ -517,7 +542,13 @@ func TestConcurrentLimiter_DifferentIPsIndependent(t *testing.T) {
 		done <- w.Code
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	// Wait for IP B to enter the handler. If it never enters, the per-IP
+	// buckets are incorrectly shared.
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for IP B to enter handler (per-IP buckets may be shared)")
+	}
 
 	close(block)
 	wg.Wait()

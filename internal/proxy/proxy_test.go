@@ -1,6 +1,7 @@
 package proxy_test
 
 import (
+	"bufio"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -354,6 +355,89 @@ func TestHopByHopHeadersStripped(t *testing.T) {
 	}
 	if body["transfer-encoding"] != "" {
 		t.Errorf("Transfer-Encoding header not stripped: got %q", body["transfer-encoding"])
+	}
+}
+
+// TestStreamingFlushesImmediately asserts end-to-end streaming works through
+// the proxy: bytes written by upstream reach the client before the upstream
+// handler completes. This is the whole reason the proxy sets
+// FlushInterval: -1 for MCP streamable-http.
+//
+// Note on sensitivity: Go's httputil.ReverseProxy auto-upgrades to
+// FlushInterval: -1 for any chunked response (ContentLength == -1) or
+// Content-Type: text/event-stream, so this test does not distinguish the
+// explicit -1 from the default 0. It still guards against regressions that
+// would break streaming entirely — e.g., wrapping the body in a buffered
+// reader, adding a response-aggregation middleware, or turning off chunked
+// encoding upstream. That's the real-world failure mode to catch.
+func TestStreamingFlushesImmediately(t *testing.T) {
+	release := make(chan struct{})
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Errorf("upstream ResponseWriter is not a Flusher")
+			return
+		}
+		// Non-SSE streaming type — avoids Go's SSE auto-upgrade so the test is
+		// sensitive to the proxy's FlushInterval setting.
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+
+		if _, err := w.Write([]byte("{\"chunk\":\"first\"}\n")); err != nil {
+			t.Errorf("write first chunk: %v", err)
+			return
+		}
+		flusher.Flush()
+
+		// Block until the test has confirmed the first chunk reached the client.
+		<-release
+
+		_, _ = w.Write([]byte("{\"chunk\":\"second\"}\n"))
+		flusher.Flush()
+	}))
+	defer upstream.Close()
+
+	proxyServer := httptest.NewServer(proxy.New(mustParseURL(t, upstream.URL), proxy.DefaultTransportConfig()))
+	defer proxyServer.Close()
+	defer close(release) // ensure upstream handler can always finish
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, proxyServer.URL+"/stream", http.NoBody)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	// Read the first chunk off the response body in a goroutine so the main
+	// goroutine can enforce a timeout. A buffering proxy would block Read
+	// until the upstream completes the whole response.
+	type readResult struct {
+		line string
+		err  error
+	}
+	readCh := make(chan readResult, 1)
+	go func() {
+		reader := bufio.NewReader(resp.Body)
+		line, err := reader.ReadString('\n')
+		readCh <- readResult{line: line, err: err}
+	}()
+
+	select {
+	case r := <-readCh:
+		if r.err != nil {
+			t.Fatalf("read first chunk: %v", r.err)
+		}
+		if !strings.Contains(r.line, "first") {
+			t.Fatalf("first chunk = %q, want it to contain \"first\"", r.line)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first streamed chunk — FlushInterval may not be forwarding chunks immediately")
 	}
 }
 

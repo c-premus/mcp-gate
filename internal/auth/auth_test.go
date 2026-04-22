@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -638,6 +640,39 @@ func TestUnknownKidRejected(t *testing.T) {
 	}
 }
 
+// TestSignatureForgeryWithKnownKID asserts that a token signed by an attacker's
+// key but advertising the cached `kid` of the JWKS's real key is rejected. This
+// is the more adversarial cousin of TestUnknownKidRejected: instead of hoping
+// to trigger a JWKS refresh by claiming a novel kid, the attacker reuses the
+// known cached kid so the signature check is the only gate. Signature verify
+// must fail; no other path should admit the token.
+func TestSignatureForgeryWithKnownKID(t *testing.T) {
+	ts := newTestSetup(t)
+	defer ts.Close()
+
+	mw := newMiddleware(t, ts, []string{"openid"})
+
+	attackerKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate attacker key: %v", err)
+	}
+
+	claims := validClaims()
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	token.Header["kid"] = testKID // Known kid — matches the cached JWKS entry
+	token.Header["typ"] = "at+jwt"
+	signed, err := token.SignedString(attackerKey)
+	if err != nil {
+		t.Fatalf("sign with attacker key: %v", err)
+	}
+
+	w := doRequest(t, mw, "Bearer "+signed)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for signature forgery with known kid, got %d", w.Code)
+	}
+}
+
 func TestLargeTokenRejected(t *testing.T) {
 	ts := newTestSetup(t)
 	defer ts.Close()
@@ -878,4 +913,174 @@ func TestMultipleAuthorizationHeaders(t *testing.T) {
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401 for multiple auth headers, got %d", w.Code)
 	}
+}
+
+// mutableJWKSServer serves a JWKS whose body and status can be swapped at
+// runtime. The zero value is unusable; construct via newMutableJWKS().
+type mutableJWKSServer struct {
+	server *httptest.Server
+	mu     sync.Mutex
+	body   []byte
+	status int
+	fail   atomic.Bool // when true, respond 500 regardless of body
+}
+
+func newMutableJWKS(t *testing.T, initial []byte) *mutableJWKSServer {
+	t.Helper()
+	m := &mutableJWKSServer{body: initial, status: http.StatusOK}
+	m.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if m.fail.Load() {
+			http.Error(w, "simulated JWKS outage", http.StatusInternalServerError)
+			return
+		}
+		m.mu.Lock()
+		body, status := m.body, m.status
+		m.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(m.server.Close)
+	return m
+}
+
+func (m *mutableJWKSServer) swap(body []byte) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.body = body
+}
+
+// jwksBodyForKey builds a JWKS JSON body exposing a single RSA public key.
+func jwksBodyForKey(t *testing.T, kid string, key *rsa.PrivateKey) []byte {
+	t.Helper()
+	body, err := json.Marshal(map[string]any{
+		"keys": []map[string]any{
+			{
+				"kty": "RSA",
+				"kid": kid,
+				"use": "sig",
+				"alg": "RS256",
+				"n":   base64URLUint(key.N),
+				"e":   base64URLUint(big.NewInt(int64(key.E))),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal jwks: %v", err)
+	}
+	return body
+}
+
+// waitForMetric polls a metric reader every 50ms until cond returns true or
+// the deadline elapses. Reports the final observed value in the failure
+// message so flake diagnosis doesn't require re-running.
+func waitForMetric(t *testing.T, reader func() float64, cond func(v float64) bool, timeout time.Duration, label string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	var last float64
+	for time.Now().Before(deadline) {
+		last = reader()
+		if cond(last) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("%s: condition not met within %s (last value %f)", label, timeout, last)
+}
+
+// TestPollJWKSDetectsKeyRotation asserts that when the JWKS key set changes
+// (kid rotation), the polling goroutine detects the new fingerprint and
+// bumps JWKSLastKeyChangeTimestamp. This is the correctness signal the
+// mcp-gate-jwks-keys-stale alert depends on.
+func TestPollJWKSDetectsKeyRotation(t *testing.T) {
+	keyA, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("gen keyA: %v", err)
+	}
+	keyB, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("gen keyB: %v", err)
+	}
+
+	jwks := newMutableJWKS(t, jwksBodyForKey(t, "rot-kid-1", keyA))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+
+	// Short RefreshInterval drives frequent library refresh; pollInterval
+	// derives to ~100ms (min(200ms/2, 5m)) so the poll sees the new fingerprint
+	// within a second of the swap.
+	_, err = auth.NewMiddleware(auth.Config{
+		Ctx:              ctx,
+		JWKSURI:          jwks.server.URL,
+		RefreshInterval:  200 * time.Millisecond,
+		ExpectedIssuer:   testIssuer,
+		ExpectedAudience: testAudience,
+		RequiredScopes:   []string{"openid"},
+		ResourceURI:      testResource,
+		Realm:            testRealm,
+		ScopesSupported:  "openid profile",
+	})
+	if err != nil {
+		t.Fatalf("NewMiddleware: %v", err)
+	}
+
+	initial := testutil.ToFloat64(metrics.JWKSLastKeyChangeTimestamp)
+
+	// Ensure enough wall-clock passes that a bump to time.Now().Unix() is
+	// strictly greater than `initial` at 1-second resolution.
+	time.Sleep(1100 * time.Millisecond)
+
+	jwks.swap(jwksBodyForKey(t, "rot-kid-2", keyB))
+
+	waitForMetric(t,
+		func() float64 { return testutil.ToFloat64(metrics.JWKSLastKeyChangeTimestamp) },
+		func(v float64) bool { return v > initial },
+		5*time.Second,
+		"JWKSLastKeyChangeTimestamp did not advance after kid swap")
+}
+
+// TestJWKSRefreshErrorIncrementsCounter asserts that the jwkset library's
+// RefreshErrorHandler wired up in auth.NewMiddleware actually reaches the
+// mcpgate_jwks_refresh_errors_total counter. This is the PRIMARY liveness
+// signal for JWKS health — if it doesn't increment on failure, the
+// mcp-gate-jwks-refresh-errors alert never fires.
+func TestJWKSRefreshErrorIncrementsCounter(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("gen key: %v", err)
+	}
+
+	jwks := newMutableJWKS(t, jwksBodyForKey(t, "err-kid", key))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+
+	before := testutil.ToFloat64(metrics.JWKSRefreshErrorsTotal)
+
+	_, err = auth.NewMiddleware(auth.Config{
+		Ctx:              ctx,
+		JWKSURI:          jwks.server.URL,
+		RefreshInterval:  200 * time.Millisecond,
+		ExpectedIssuer:   testIssuer,
+		ExpectedAudience: testAudience,
+		RequiredScopes:   []string{"openid"},
+		ResourceURI:      testResource,
+		Realm:            testRealm,
+		ScopesSupported:  "openid profile",
+	})
+	if err != nil {
+		t.Fatalf("NewMiddleware: %v", err)
+	}
+
+	// Flip the JWKS to 500 AFTER initial fetch succeeded, so NewMiddleware
+	// doesn't error at startup. The library's refresh goroutine will hit 500
+	// on the next tick.
+	jwks.fail.Store(true)
+
+	waitForMetric(t,
+		func() float64 { return testutil.ToFloat64(metrics.JWKSRefreshErrorsTotal) },
+		func(v float64) bool { return v > before },
+		5*time.Second,
+		"JWKSRefreshErrorsTotal did not increment after JWKS endpoint began returning 500")
 }
