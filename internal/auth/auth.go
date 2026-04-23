@@ -27,10 +27,41 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// Scopes holds the OAuth `scope` claim. RFC 6749 §3.3 specifies the wire form
+// as a space-separated string, but some providers (e.g. Cloudflare Access) emit
+// a JSON array. Scopes accepts both on unmarshal and emits the RFC-compliant
+// string form on marshal.
+type Scopes []string
+
+// UnmarshalJSON decodes a scope claim from either a JSON array of strings or a
+// space-separated string. A JSON null decodes to an empty slice.
+func (s *Scopes) UnmarshalJSON(b []byte) error {
+	if string(b) == "null" {
+		*s = nil
+		return nil
+	}
+	var arr []string
+	if err := json.Unmarshal(b, &arr); err == nil {
+		*s = arr
+		return nil
+	}
+	var str string
+	if err := json.Unmarshal(b, &str); err != nil {
+		return fmt.Errorf("scope claim: expected string or array of strings: %w", err)
+	}
+	*s = strings.Fields(str)
+	return nil
+}
+
+// MarshalJSON emits the RFC 6749 space-separated string form.
+func (s Scopes) MarshalJSON() ([]byte, error) {
+	return json.Marshal(strings.Join(s, " "))
+}
+
 // Claims represents the JWT claims validated by this middleware.
 type Claims struct {
 	jwt.RegisteredClaims
-	Scope string `json:"scope,omitempty"`
+	Scope Scopes `json:"scope,omitempty"`
 }
 
 // Config holds JWT validation configuration.
@@ -280,15 +311,14 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		}
 
 		// Scope validation — 403, not 401
-		tokenScopes := strings.Fields(claims.Scope)
 		for _, required := range m.cfg.RequiredScopes {
-			if slices.Contains(tokenScopes, required) {
+			if slices.Contains(claims.Scope, required) {
 				continue
 			}
 			slog.Warn("token rejected",
 				"reason", "insufficient_scope",
 				"required", required,
-				"token_scopes", claims.Scope,
+				"token_scopes", strings.Join(claims.Scope, " "),
 				"client_ip", clientIP,
 				"jti", claims.ID,
 			)
@@ -321,7 +351,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		slog.Debug("token validated",
 			"sub", claims.Subject,
 			"iss", claims.Issuer,
-			"scopes", claims.Scope,
+			"scopes", strings.Join(claims.Scope, " "),
 			"jti", claims.ID,
 			"client_ip", clientIP,
 		)

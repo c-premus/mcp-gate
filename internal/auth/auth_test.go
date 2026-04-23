@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -134,7 +135,7 @@ func validClaims() auth.Claims {
 			ID:        "test-jti-123",
 			Subject:   "test-user",
 		},
-		Scope: "openid profile",
+		Scope: auth.Scopes{"openid", "profile"},
 	}
 }
 
@@ -316,7 +317,7 @@ func TestMissingScopeReturns403(t *testing.T) {
 
 	mw := newMiddleware(t, ts, []string{"openid", "admin"})
 	claims := validClaims()
-	claims.Scope = "openid profile" // missing "admin"
+	claims.Scope = auth.Scopes{"openid", "profile"} // missing "admin"
 	token := signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
 
 	w := doRequest(t, mw, "Bearer "+token)
@@ -596,13 +597,133 @@ func TestMissingNbfAccepted(t *testing.T) {
 	}
 }
 
+// TestScopesUnmarshalJSON exercises the low-level wire-form handling of the
+// Scopes type directly, including edge cases (null, invalid types) that the
+// JWT-level integration tests don't hit.
+func TestScopesUnmarshalJSON(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    auth.Scopes
+		wantErr bool
+	}{
+		{name: "json array", input: `["openid","profile"]`, want: auth.Scopes{"openid", "profile"}},
+		{name: "space-separated string", input: `"openid profile"`, want: auth.Scopes{"openid", "profile"}},
+		{name: "single scope string", input: `"openid"`, want: auth.Scopes{"openid"}},
+		{name: "empty array", input: `[]`, want: auth.Scopes{}},
+		{name: "empty string", input: `""`, want: auth.Scopes{}},
+		{name: "whitespace-only string", input: `"   "`, want: auth.Scopes{}},
+		{name: "null", input: `null`, want: nil},
+		{name: "number rejected", input: `42`, wantErr: true},
+		{name: "object rejected", input: `{"scope":"openid"}`, wantErr: true},
+		{name: "malformed rejected", input: `[`, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got auth.Scopes
+			err := json.Unmarshal([]byte(tt.input), &got)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("input %q: expected error, got nil (parsed as %v)", tt.input, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("input %q: unexpected error: %v", tt.input, err)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("input %q: got %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestScopesMarshalJSON verifies that Scopes serializes to the RFC 6749
+// space-separated string form on output, regardless of how it was populated.
+func TestScopesMarshalJSON(t *testing.T) {
+	tests := []struct {
+		name  string
+		input auth.Scopes
+		want  string
+	}{
+		{name: "two scopes", input: auth.Scopes{"openid", "profile"}, want: `"openid profile"`},
+		{name: "single scope", input: auth.Scopes{"openid"}, want: `"openid"`},
+		{name: "empty", input: auth.Scopes{}, want: `""`},
+		{name: "nil", input: nil, want: `""`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := json.Marshal(tt.input)
+			if err != nil {
+				t.Fatalf("marshal error: %v", err)
+			}
+			if string(got) != tt.want {
+				t.Fatalf("got %s, want %s", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestScopeClaimAsJSONArray covers providers (e.g. Cloudflare Access) that emit
+// the OAuth `scope` claim as a JSON array instead of the RFC 6749 space-separated
+// string form. See GitHub issue #1.
+func TestScopeClaimAsJSONArray(t *testing.T) {
+	ts := newTestSetup(t)
+	defer ts.Close()
+
+	mw := newMiddleware(t, ts, []string{"openid"})
+
+	now := time.Now()
+	mapClaims := jwt.MapClaims{
+		"iss":   testIssuer,
+		"aud":   testAudience,
+		"exp":   now.Add(time.Hour).Unix(),
+		"iat":   now.Unix(),
+		"sub":   "test-user",
+		"scope": []string{"openid", "profile"},
+	}
+	token := signToken(t, ts.privKey, mapClaims, map[string]any{"typ": "at+jwt"})
+
+	w := doRequest(t, mw, "Bearer "+token)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for array-form scope, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestScopeClaimAsSpaceSeparatedString covers the RFC 6749 string form emitted
+// by Authentik and most OIDC providers.
+func TestScopeClaimAsSpaceSeparatedString(t *testing.T) {
+	ts := newTestSetup(t)
+	defer ts.Close()
+
+	mw := newMiddleware(t, ts, []string{"openid"})
+
+	now := time.Now()
+	mapClaims := jwt.MapClaims{
+		"iss":   testIssuer,
+		"aud":   testAudience,
+		"exp":   now.Add(time.Hour).Unix(),
+		"iat":   now.Unix(),
+		"sub":   "test-user",
+		"scope": "openid profile",
+	}
+	token := signToken(t, ts.privKey, mapClaims, map[string]any{"typ": "at+jwt"})
+
+	w := doRequest(t, mw, "Bearer "+token)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for string-form scope, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestEmptyScopeRejected(t *testing.T) {
 	ts := newTestSetup(t)
 	defer ts.Close()
 
 	mw := newMiddleware(t, ts, []string{"openid"})
 	claims := validClaims()
-	claims.Scope = "" // empty scope when openid is required
+	claims.Scope = nil // empty scope when openid is required
 	token := signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
 
 	w := doRequest(t, mw, "Bearer "+token)
@@ -904,7 +1025,7 @@ func TestEmptyRequiredScopesAcceptsAnyScope(t *testing.T) {
 	// No required scopes — any token should pass scope check
 	mw := newMiddleware(t, ts, nil)
 	claims := validClaims()
-	claims.Scope = "" // no scope at all
+	claims.Scope = nil // no scope at all
 	token := signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
 
 	w := doRequest(t, mw, "Bearer "+token)
