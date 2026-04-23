@@ -5,9 +5,9 @@ import {
   RowBuilder,
 } from "@grafana/grafana-foundation-sdk/dashboard";
 import { overviewPanels } from "./panels/overview";
-import { authRow } from "./panels/auth";
-import { proxyRow } from "./panels/proxy";
-import { jwksRow } from "./panels/jwks";
+import { authPanels } from "./panels/auth";
+import { proxyPanels } from "./panels/proxy";
+import { jwksPanels } from "./panels/jwks";
 import { runtimeRow } from "./panels/runtime";
 import { tracesRow } from "./panels/traces";
 import { logsPanels } from "./panels/logs";
@@ -39,21 +39,29 @@ export function buildDashboard(): DashboardBuilder {
         .type("loki")
     );
 
-  // Service Overview — uncollapsed row with panels added directly to dashboard
-  builder = builder.withRow(new RowBuilder("Service Overview"));
-  for (const panel of overviewPanels()) {
-    builder = builder.withPanel(panel);
+  // Signal sections — row as separator, panels at dashboard level so they
+  // stay expanded. The Grafana Foundation SDK's RowBuilder.withPanel forces
+  // collapsed=true because Grafana strips nested panels from expanded rows.
+  const expandedSections: [string, () => ReturnType<typeof overviewPanels>][] = [
+    ["Service Overview", overviewPanels],
+    ["Authentication", authPanels],
+    ["Upstream Proxy", proxyPanels],
+    ["JWKS Health", jwksPanels],
+  ];
+  for (const [title, panelsFn] of expandedSections) {
+    builder = builder.withRow(new RowBuilder(title));
+    for (const panel of panelsFn()) {
+      builder = builder.withPanel(panel);
+    }
   }
 
-  // Collapsed drill-down rows
+  // Drill-down rows (collapsed by default — operators open these deliberately)
   builder = builder
-    .withRow(authRow())
-    .withRow(proxyRow())
-    .withRow(jwksRow())
     .withRow(runtimeRow())
     .withRow(tracesRow());
 
-  // Logs — uncollapsed row with panels added directly to dashboard
+  // Logs — row as separator, panels at dashboard level so live-log widgets
+  // render below the header. Same pattern as the expanded sections above.
   builder = builder.withRow(new RowBuilder("Logs"));
   for (const panel of logsPanels()) {
     builder = builder.withPanel(panel);

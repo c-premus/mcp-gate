@@ -2,7 +2,6 @@ import { PanelBuilder as StatPanel } from "@grafana/grafana-foundation-sdk/stat"
 import { PanelBuilder as TimeseriesPanel } from "@grafana/grafana-foundation-sdk/timeseries";
 import { DataqueryBuilder as PrometheusQuery } from "@grafana/grafana-foundation-sdk/prometheus";
 import {
-  RowBuilder,
   ThresholdsConfigBuilder,
   FieldColorBuilder,
 } from "@grafana/grafana-foundation-sdk/dashboard";
@@ -16,6 +15,8 @@ import {
   TooltipDisplayMode,
   SortOrder,
 } from "@grafana/grafana-foundation-sdk/common";
+import type * as cog from "@grafana/grafana-foundation-sdk/cog";
+import type * as dashboard from "@grafana/grafana-foundation-sdk/dashboard";
 import { PROMETHEUS, JOB_FILTER } from "./constants";
 
 function keysLoadedStat(): StatPanel {
@@ -143,12 +144,13 @@ function keysLoadedTimeseries(): TimeseriesPanel {
     );
 }
 
-export function jwksRow(): RowBuilder {
-  return new RowBuilder("JWKS Health")
-    .collapsed(true)
-    .withPanel(keysLoadedStat())
-    .withPanel(refreshErrorsStat())
-    .withPanel(timeSinceKeyChangeStat())
-    .withPanel(refreshErrorRateTimeseries())
-    .withPanel(keysLoadedTimeseries());
+/** Returns panels for the JWKS Health section (added directly to dashboard so the row stays expanded — the Grafana Foundation SDK forces collapsed=true whenever a row has nested panels). */
+export function jwksPanels(): cog.Builder<dashboard.Panel>[] {
+  return [
+    keysLoadedStat(),
+    refreshErrorsStat(),
+    timeSinceKeyChangeStat(),
+    refreshErrorRateTimeseries(),
+    keysLoadedTimeseries(),
+  ];
 }

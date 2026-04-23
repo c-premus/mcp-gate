@@ -3,7 +3,6 @@ import { PanelBuilder as TimeseriesPanel } from "@grafana/grafana-foundation-sdk
 import { PanelBuilder as PiechartPanel } from "@grafana/grafana-foundation-sdk/piechart";
 import { DataqueryBuilder as PrometheusQuery } from "@grafana/grafana-foundation-sdk/prometheus";
 import {
-  RowBuilder,
   ThresholdsConfigBuilder,
   FieldColorBuilder,
 } from "@grafana/grafana-foundation-sdk/dashboard";
@@ -17,6 +16,8 @@ import {
   TooltipDisplayMode,
   SortOrder,
 } from "@grafana/grafana-foundation-sdk/common";
+import type * as cog from "@grafana/grafana-foundation-sdk/cog";
+import type * as dashboard from "@grafana/grafana-foundation-sdk/dashboard";
 import { PROMETHEUS, JOB_FILTER } from "./constants";
 
 function validAuthStat(): StatPanel {
@@ -168,13 +169,14 @@ function authOutcomePiechart(): PiechartPanel {
     );
 }
 
-export function authRow(): RowBuilder {
-  return new RowBuilder("Authentication")
-    .collapsed(true)
-    .withPanel(validAuthStat())
-    .withPanel(noTokenStat())
-    .withPanel(invalidTokenStat())
-    .withPanel(insufficientScopeStat())
-    .withPanel(authFailureTimeseries())
-    .withPanel(authOutcomePiechart());
+/** Returns panels for the Authentication section (added directly to dashboard so the row stays expanded — the Grafana Foundation SDK forces collapsed=true whenever a row has nested panels). */
+export function authPanels(): cog.Builder<dashboard.Panel>[] {
+  return [
+    validAuthStat(),
+    noTokenStat(),
+    invalidTokenStat(),
+    insufficientScopeStat(),
+    authFailureTimeseries(),
+    authOutcomePiechart(),
+  ];
 }

@@ -2,7 +2,6 @@ import { PanelBuilder as StatPanel } from "@grafana/grafana-foundation-sdk/stat"
 import { PanelBuilder as TimeseriesPanel } from "@grafana/grafana-foundation-sdk/timeseries";
 import { DataqueryBuilder as PrometheusQuery } from "@grafana/grafana-foundation-sdk/prometheus";
 import {
-  RowBuilder,
   ThresholdsConfigBuilder,
 } from "@grafana/grafana-foundation-sdk/dashboard";
 import { ThresholdsMode } from "@grafana/grafana-foundation-sdk/dashboard";
@@ -12,6 +11,8 @@ import {
   TooltipDisplayMode,
   SortOrder,
 } from "@grafana/grafana-foundation-sdk/common";
+import type * as cog from "@grafana/grafana-foundation-sdk/cog";
+import type * as dashboard from "@grafana/grafana-foundation-sdk/dashboard";
 import { PROMETHEUS, JOB_FILTER } from "./constants";
 
 function proxyP95Stat(): StatPanel {
@@ -136,11 +137,12 @@ function proxyStatusTimeseries(): TimeseriesPanel {
     );
 }
 
-export function proxyRow(): RowBuilder {
-  return new RowBuilder("Upstream Proxy")
-    .collapsed(true)
-    .withPanel(proxyP95Stat())
-    .withPanel(proxyErrorRateStat())
-    .withPanel(proxyLatencyTimeseries())
-    .withPanel(proxyStatusTimeseries());
+/** Returns panels for the Upstream Proxy section (added directly to dashboard so the row stays expanded — the Grafana Foundation SDK forces collapsed=true whenever a row has nested panels). */
+export function proxyPanels(): cog.Builder<dashboard.Panel>[] {
+  return [
+    proxyP95Stat(),
+    proxyErrorRateStat(),
+    proxyLatencyTimeseries(),
+    proxyStatusTimeseries(),
+  ];
 }
