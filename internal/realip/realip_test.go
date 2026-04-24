@@ -1,15 +1,15 @@
 package realip
 
 import (
-	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 )
 
 // mustParseCIDRs is a test helper that calls ParseCIDRs and fails on error.
-func mustParseCIDRs(t *testing.T, cidrs []string) []*net.IPNet {
+func mustParseCIDRs(t *testing.T, cidrs []string) []netip.Prefix {
 	t.Helper()
 	nets, err := ParseCIDRs(cidrs)
 	if err != nil {

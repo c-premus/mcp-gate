@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 )
 
@@ -29,7 +30,7 @@ func FromContext(r *http.Request) string {
 // Middleware returns HTTP middleware that calls Extract once and stores the
 // result in the request context. Downstream handlers use FromContext to
 // retrieve the IP without re-parsing headers.
-func Middleware(trustedProxies []*net.IPNet) func(http.Handler) http.Handler {
+func Middleware(trustedProxies []netip.Prefix) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ip := Extract(r, trustedProxies)
@@ -60,7 +61,7 @@ const unknownIP = "unknown"
 //
 // Extract never returns the empty string: an unparseable or absent
 // RemoteAddr maps to the unknownIP sentinel.
-func Extract(r *http.Request, trustedProxies []*net.IPNet) string {
+func Extract(r *http.Request, trustedProxies []netip.Prefix) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = r.RemoteAddr
@@ -70,8 +71,8 @@ func Extract(r *http.Request, trustedProxies []*net.IPNet) string {
 	}
 
 	if len(trustedProxies) > 0 {
-		remoteIP := net.ParseIP(host)
-		if remoteIP != nil && ipInNets(remoteIP, trustedProxies) {
+		remoteIP, _ := netip.ParseAddr(host)
+		if remoteIP.IsValid() && ipInNets(remoteIP, trustedProxies) {
 			// X-Forwarded-For: walk right-to-left, skip trusted proxies.
 			// The first untrusted IP is the real client. This prevents
 			// spoofing via attacker-prepended entries at the front.
@@ -85,12 +86,12 @@ func Extract(r *http.Request, trustedProxies []*net.IPNet) string {
 				ips := strings.Split(xff, ",")
 				for i := len(ips) - 1; i >= 0; i-- {
 					candidate := strings.TrimSpace(ips[i])
-					parsed := net.ParseIP(candidate)
-					if parsed == nil {
+					parsed, _ := netip.ParseAddr(candidate)
+					if !parsed.IsValid() {
 						continue
 					}
 					if !ipInNets(parsed, trustedProxies) {
-						return parsed.String()
+						return parsed.Unmap().String()
 					}
 				}
 			}
@@ -98,9 +99,9 @@ func Extract(r *http.Request, trustedProxies []*net.IPNet) string {
 			// trusted proxy. Some reverse proxies set X-Real-IP to
 			// the direct peer rather than the resolved client IP.
 			if ip := r.Header.Get("X-Real-Ip"); ip != "" {
-				if parsed := net.ParseIP(strings.TrimSpace(ip)); parsed != nil {
+				if parsed, _ := netip.ParseAddr(strings.TrimSpace(ip)); parsed.IsValid() {
 					if !ipInNets(parsed, trustedProxies) {
-						return parsed.String()
+						return parsed.Unmap().String()
 					}
 				}
 			}
@@ -109,9 +110,10 @@ func Extract(r *http.Request, trustedProxies []*net.IPNet) string {
 
 	// Normalize to canonical form so IPv6 representations like
 	// "2001:db8:0:0:0:0:0:1" and "2001:db8::1" produce the same
-	// string for log keys and metrics labels.
-	if parsed := net.ParseIP(host); parsed != nil {
-		return parsed.String()
+	// string for log keys and metrics labels. Unmap collapses
+	// IPv4-mapped IPv6 (::ffff:1.2.3.4) to its IPv4 string form.
+	if parsed, _ := netip.ParseAddr(host); parsed.IsValid() {
+		return parsed.Unmap().String()
 	}
 	// Unparseable host (e.g. Unix socket "@", or a bare hostname): fall
 	// through to the sentinel rather than reflecting attacker-shaped junk
@@ -119,7 +121,12 @@ func Extract(r *http.Request, trustedProxies []*net.IPNet) string {
 	return unknownIP
 }
 
-func ipInNets(ip net.IP, nets []*net.IPNet) bool {
+// ipInNets reports whether ip is contained in any of the given prefixes.
+// It calls Unmap on ip so that IPv4-mapped IPv6 addresses (::ffff:a.b.c.d)
+// are matched against IPv4 prefixes — netip.Prefix.Contains otherwise
+// rejects family mismatches.
+func ipInNets(ip netip.Addr, nets []netip.Prefix) bool {
+	ip = ip.Unmap()
 	for _, n := range nets {
 		if n.Contains(ip) {
 			return true
@@ -128,44 +135,47 @@ func ipInNets(ip net.IP, nets []*net.IPNet) bool {
 	return false
 }
 
-// ParseCIDRs parses a list of CIDR strings into net.IPNet values.
+// ParseCIDRs parses a list of CIDR strings into netip.Prefix values.
 // Bare IPs without a prefix length are treated as /32 (IPv4) or /128 (IPv6).
-func ParseCIDRs(cidrs []string) ([]*net.IPNet, error) {
+func ParseCIDRs(cidrs []string) ([]netip.Prefix, error) {
 	if len(cidrs) == 0 {
 		return nil, nil
 	}
-	nets := make([]*net.IPNet, 0, len(cidrs))
+	nets := make([]netip.Prefix, 0, len(cidrs))
 	for _, entry := range cidrs {
 		entry = strings.TrimSpace(entry)
 		if entry == "" {
 			continue
 		}
-		if !strings.Contains(entry, "/") {
-			ip := net.ParseIP(entry)
-			if ip == nil {
+		var prefix netip.Prefix
+		if strings.Contains(entry, "/") {
+			p, err := netip.ParsePrefix(entry)
+			if err != nil {
+				return nil, fmt.Errorf("invalid CIDR: %q: %w", entry, err)
+			}
+			// Masked() canonicalizes to the network address so
+			// String() output matches the old net.ParseCIDR behavior
+			// (which always returned the masked form).
+			prefix = p.Masked()
+		} else {
+			addr, err := netip.ParseAddr(entry)
+			if err != nil {
 				return nil, fmt.Errorf("invalid IP: %q", entry)
 			}
-			if ip.To4() != nil {
-				entry += "/32"
-			} else {
-				entry += "/128"
-			}
-		}
-		_, cidr, err := net.ParseCIDR(entry)
-		if err != nil {
-			return nil, fmt.Errorf("invalid CIDR: %q: %w", entry, err)
+			// BitLen() is 32 for IPv4, 128 for IPv6.
+			prefix = netip.PrefixFrom(addr, addr.BitLen())
 		}
 		// Reject catch-all CIDRs (0.0.0.0/0 and ::/0). Trusting every peer
 		// defeats the point of TRUSTED_PROXIES and enables IP spoofing via
 		// client-supplied X-Forwarded-For / X-Real-IP headers.
-		if ones, _ := cidr.Mask.Size(); ones == 0 {
+		if prefix.Bits() == 0 {
 			return nil, fmt.Errorf(
 				"refusing catch-all CIDR %q in TRUSTED_PROXIES: "+
 					"would trust X-Forwarded-For from every peer and enable IP spoofing",
 				entry,
 			)
 		}
-		nets = append(nets, cidr)
+		nets = append(nets, prefix)
 	}
 	return nets, nil
 }

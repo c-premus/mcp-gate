@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/signal"
@@ -84,7 +85,7 @@ type runConfig struct {
 	jwksRefreshInterval time.Duration
 	shutdownTimeout     time.Duration
 	maxRequestBody      int64
-	trustedProxies      []*net.IPNet
+	trustedProxies      []netip.Prefix
 	rateLimitRPS        float64
 	rateLimitBurst      int
 	maxConcurrentPerIP  int
