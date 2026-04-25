@@ -16,6 +16,9 @@ services:
       EXPECTED_ISSUER: "https://auth.example.com/application/o/mcp/"
       EXPECTED_AUDIENCE: "your-oauth-client-id"
       LOG_LEVEL: "info"
+      # Soft memory cap so the Go GC keeps heap below this before host OOM
+      # kicks in. See docs/setup.md "Deploy Behavior" for tuning guidance.
+      GOMEMLIMIT: "256MiB"
     healthcheck:
       test: ["/mcp-gate", "healthcheck"]
       interval: 30s
