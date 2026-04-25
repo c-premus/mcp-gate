@@ -280,6 +280,14 @@ func TestDefaultTransportConfig(t *testing.T) {
 }
 
 func TestTracePropagationHeaders(t *testing.T) {
+	// Snapshot the global propagator so other tests aren't observably mutated
+	// by this one. Without the restore, every test running after this in the
+	// same process sees TraceContext{} as the default — generally fine here,
+	// but cross-test global state is the kind of land mine that makes
+	// failures non-reproducible when test order shifts.
+	prevPropagator := otel.GetTextMapPropagator()
+	t.Cleanup(func() { otel.SetTextMapPropagator(prevPropagator) })
+
 	// Set up W3C TraceContext propagator (same as production otel.Setup)
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 
@@ -519,5 +527,213 @@ func TestCustomTransportConfig_DialTimeout(t *testing.T) {
 
 	if w.Code != http.StatusBadGateway {
 		t.Errorf("expected 502 due to dial timeout, got %d", w.Code)
+	}
+}
+
+// TestErrorHandlerSeesNoAuthorization locks in the belt-and-suspenders strip:
+// Rewrite removes Authorization and Cookie from BOTH r.Out and r.In, so even
+// when the upstream is unreachable and the ErrorHandler runs against the
+// inbound request, the user JWT cannot leak through a future "log r.Header"
+// regression. The proxy is invoked against a non-routable upstream (RFC 5737
+// TEST-NET-1), forcing the dial to fail and ErrorHandler to fire. After the
+// roundtrip, the original request's Authorization/Cookie headers must be empty.
+func TestErrorHandlerSeesNoAuthorization(t *testing.T) {
+	tc := proxy.DefaultTransportConfig()
+	tc.DialTimeout = time.Nanosecond // Force ErrorHandler
+
+	p := proxy.New(mustParseURL(t, "http://192.0.2.1:1"), tc)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
+	req.Header.Set("Authorization", "Bearer leaky-jwt")
+	req.Header.Set("Cookie", "session=abc123")
+	w := httptest.NewRecorder()
+
+	p.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d", w.Code)
+	}
+	// httputil.ReverseProxy passes the inbound *http.Request to ErrorHandler.
+	// Rewrite must have stripped these from r.In so the ErrorHandler closure
+	// (and any future log lines added there) sees no token material.
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Errorf("Authorization on r.In after Rewrite = %q, want empty (would leak via ErrorHandler logs)", got)
+	}
+	if got := req.Header.Get("Cookie"); got != "" {
+		t.Errorf("Cookie on r.In after Rewrite = %q, want empty", got)
+	}
+}
+
+// TestRewriteStripsAuthorizationFromInboundRequest covers the success path
+// (no error): even when the upstream returns 200, r.In's Authorization header
+// must be cleared so any wrapping middleware that logs the inbound request
+// after ServeHTTP returns cannot leak the user JWT.
+func TestRewriteStripsAuthorizationFromInboundRequest(t *testing.T) {
+	upstream := echoUpstream()
+	defer upstream.Close()
+
+	p := proxy.New(mustParseURL(t, upstream.URL), proxy.DefaultTransportConfig())
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
+	req.Header.Set("Authorization", "Bearer leaky-jwt")
+	req.Header.Set("Cookie", "session=abc123")
+	w := httptest.NewRecorder()
+
+	p.ServeHTTP(w, req)
+
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Errorf("Authorization on r.In after Rewrite = %q, want empty", got)
+	}
+	if got := req.Header.Get("Cookie"); got != "" {
+		t.Errorf("Cookie on r.In after Rewrite = %q, want empty", got)
+	}
+}
+
+// TestResponseBytesObserved asserts ProxyResponseBytes records a sample for a
+// completed (non-streaming) response. The exact byte count is not asserted
+// here — the histogram surfaces it — but the sample-count delta proves the
+// counting body wrapper is wired through ModifyResponse.
+func TestResponseBytesObserved(t *testing.T) {
+	const payload = "hello, world\n"
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte(payload))
+	}))
+	defer upstream.Close()
+
+	before := histogramSampleCount(t, metrics.ProxyResponseBytes)
+
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
+	resp := doProxyRequest(t, upstream, req)
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+
+	if string(body) != payload {
+		t.Fatalf("body = %q, want %q", body, payload)
+	}
+
+	after := histogramSampleCount(t, metrics.ProxyResponseBytes)
+	if after != before+1 {
+		t.Fatalf("ProxyResponseBytes sample count = %d, want %d", after, before+1)
+	}
+}
+
+// counterValue reads the current value of a labelled prometheus counter.
+func counterValue(t *testing.T, c interface {
+	Write(*dto.Metric) error
+},
+) float64 {
+	t.Helper()
+	m := &dto.Metric{}
+	if err := c.Write(m); err != nil {
+		t.Fatalf("counter Write: %v", err)
+	}
+	return m.GetCounter().GetValue()
+}
+
+// TestSSEIdleTimeoutClosesStream drives an SSE upstream that sends one event
+// and then stalls forever. With a small SSE_IDLE_TIMEOUT, the proxy must
+// close the upstream body and increment the idle_timeout disconnect counter.
+// This is the resilience M6 guarantee: a silent SSE cannot pin a slot.
+func TestSSEIdleTimeoutClosesStream(t *testing.T) {
+	stop := make(chan struct{})
+	defer close(stop)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Errorf("upstream ResponseWriter is not a Flusher")
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: first\n\n"))
+		flusher.Flush()
+		// Stall until the test ends.
+		select {
+		case <-stop:
+		case <-r.Context().Done():
+		}
+	}))
+	defer upstream.Close()
+
+	tc := proxy.DefaultTransportConfig()
+	tc.SSEIdleTimeout = 100 * time.Millisecond
+
+	beforeIdle := counterValue(t, metrics.ProxySSEDisconnectsTotal.WithLabelValues("idle_timeout"))
+
+	p := proxy.New(mustParseURL(t, upstream.URL), tc)
+	srv := httptest.NewServer(p)
+	defer srv.Close()
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/sse", http.NoBody)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	// Read until EOF — body should close once the idle timer fires.
+	done := make(chan error, 1)
+	go func() {
+		_, err := io.Copy(io.Discard, resp.Body)
+		done <- err
+	}()
+
+	select {
+	case <-done:
+		// Stream closed as expected.
+	case <-time.After(5 * time.Second):
+		t.Fatal("proxy did not close idle SSE stream within 5s — SSE_IDLE_TIMEOUT not enforced")
+	}
+
+	afterIdle := counterValue(t, metrics.ProxySSEDisconnectsTotal.WithLabelValues("idle_timeout"))
+	if afterIdle <= beforeIdle {
+		t.Fatalf("ProxySSEDisconnectsTotal{reason=idle_timeout} did not increment: before=%v after=%v", beforeIdle, afterIdle)
+	}
+}
+
+// TestSSEIdleTimeoutDisabled covers the operator escape-hatch: setting
+// SSEIdleTimeout to zero disables the idle bound entirely, and a slow stream
+// runs to completion (or until the client/upstream ends it) without the
+// timer ever firing. This guards against a regression where 0 is mistakenly
+// treated as an immediate timeout.
+func TestSSEIdleTimeoutDisabled(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Errorf("upstream ResponseWriter is not a Flusher")
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: only\n\n"))
+		flusher.Flush()
+		// Return immediately — upstream closes the stream cleanly.
+	}))
+	defer upstream.Close()
+
+	tc := proxy.DefaultTransportConfig()
+	tc.SSEIdleTimeout = 0 // disabled
+
+	beforeIdle := counterValue(t, metrics.ProxySSEDisconnectsTotal.WithLabelValues("idle_timeout"))
+
+	p := proxy.New(mustParseURL(t, upstream.URL), tc)
+	srv := httptest.NewServer(p)
+	defer srv.Close()
+
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/sse", http.NoBody)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+
+	afterIdle := counterValue(t, metrics.ProxySSEDisconnectsTotal.WithLabelValues("idle_timeout"))
+	if afterIdle != beforeIdle {
+		t.Fatalf("idle_timeout counter incremented with SSEIdleTimeout=0: before=%v after=%v", beforeIdle, afterIdle)
 	}
 }
