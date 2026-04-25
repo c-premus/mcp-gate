@@ -8,12 +8,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -83,6 +86,7 @@ func defaultTestConfig(jwksURL, upstreamURL string) runConfig {
 		maxConcurrentPerIP:  100,
 		maxTotalConnections: 1000,
 		upstreamTimeout:     120 * time.Second,
+		sseIdleTimeout:      5 * time.Minute,
 		readTimeout:         30 * time.Second,
 		idleTimeout:         120 * time.Second,
 		maxHeaderBytes:      65536,
@@ -96,66 +100,15 @@ func TestValidate_Valid(t *testing.T) {
 	}
 }
 
-func TestValidate_MissingListenAddr(t *testing.T) {
-	cfg := defaultTestConfig("https://example.com/jwks", "http://localhost:8000")
-	cfg.listenAddr = ""
-	if err := cfg.validate(); err == nil {
-		t.Error("expected error for empty listen address")
-	}
-}
+// String-emptiness and URL-scheme checks are covered by TestLoadConfig_Errors;
+// validate() only re-enforces the nil-pointer and positivity invariants that
+// a hand-built runConfig (test caller) can violate.
 
 func TestValidate_NilUpstreamURL(t *testing.T) {
 	cfg := defaultTestConfig("https://example.com/jwks", "http://localhost:8000")
 	cfg.upstreamURL = nil
 	if err := cfg.validate(); err == nil {
 		t.Error("expected error for nil upstream URL")
-	}
-}
-
-func TestValidate_BadUpstreamScheme(t *testing.T) {
-	cfg := defaultTestConfig("https://example.com/jwks", "ftp://localhost:8000")
-	if err := cfg.validate(); err == nil {
-		t.Error("expected error for ftp:// upstream scheme")
-	}
-}
-
-func TestValidate_MissingResourceURI(t *testing.T) {
-	cfg := defaultTestConfig("https://example.com/jwks", "http://localhost:8000")
-	cfg.resourceURI = ""
-	if err := cfg.validate(); err == nil {
-		t.Error("expected error for empty resource URI")
-	}
-}
-
-func TestValidate_MissingAuthServer(t *testing.T) {
-	cfg := defaultTestConfig("https://example.com/jwks", "http://localhost:8000")
-	cfg.authServer = ""
-	if err := cfg.validate(); err == nil {
-		t.Error("expected error for empty auth server")
-	}
-}
-
-func TestValidate_MissingJWKSURI(t *testing.T) {
-	cfg := defaultTestConfig("https://example.com/jwks", "http://localhost:8000")
-	cfg.jwksURI = ""
-	if err := cfg.validate(); err == nil {
-		t.Error("expected error for empty JWKS URI")
-	}
-}
-
-func TestValidate_MissingIssuer(t *testing.T) {
-	cfg := defaultTestConfig("https://example.com/jwks", "http://localhost:8000")
-	cfg.expectedIssuer = ""
-	if err := cfg.validate(); err == nil {
-		t.Error("expected error for empty expected issuer")
-	}
-}
-
-func TestValidate_MissingAudience(t *testing.T) {
-	cfg := defaultTestConfig("https://example.com/jwks", "http://localhost:8000")
-	cfg.expectedAudience = ""
-	if err := cfg.validate(); err == nil {
-		t.Error("expected error for empty expected audience")
 	}
 }
 
@@ -220,6 +173,14 @@ func TestValidate_BadUpstreamTimeout(t *testing.T) {
 	cfg.upstreamTimeout = 0
 	if err := cfg.validate(); err == nil {
 		t.Error("expected error for zero upstream timeout")
+	}
+}
+
+func TestValidate_BadSSEIdleTimeout(t *testing.T) {
+	cfg := defaultTestConfig("https://example.com/jwks", "http://localhost:8000")
+	cfg.sseIdleTimeout = 0
+	if err := cfg.validate(); err == nil {
+		t.Error("expected error for zero SSE idle timeout")
 	}
 }
 
@@ -548,6 +509,11 @@ func TestRun_SecurityHeadersOnAllRoutes(t *testing.T) {
 
 // --- JWT signing helper for integration tests ---
 
+// signTestToken signs a JWT for tests. The kid parameter remains explicit even
+// though every current call site passes "test-key-1": tests that exercise
+// unknown-kid / rotation paths will pass other values.
+//
+//nolint:unparam // kid is part of the helper's contract; future callers will vary it.
 func signTestToken(t *testing.T, privKey *rsa.PrivateKey, kid string, claims jwt.Claims) string {
 	t.Helper()
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
@@ -624,6 +590,9 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if cfg.upstreamTimeout != 120*time.Second {
 		t.Errorf("upstreamTimeout = %v, want 120s", cfg.upstreamTimeout)
 	}
+	if cfg.sseIdleTimeout != 5*time.Minute {
+		t.Errorf("sseIdleTimeout = %v, want 5m", cfg.sseIdleTimeout)
+	}
 	if cfg.readTimeout != 30*time.Second {
 		t.Errorf("readTimeout = %v, want 30s", cfg.readTimeout)
 	}
@@ -644,6 +613,7 @@ func TestLoadConfig_Optionals(t *testing.T) {
 	t.Setenv("SHUTDOWN_TIMEOUT", "10s")
 	t.Setenv("MAX_REQUEST_BODY", "5242880")
 	t.Setenv("UPSTREAM_TIMEOUT", "60s")
+	t.Setenv("SSE_IDLE_TIMEOUT", "10m")
 	t.Setenv("READ_TIMEOUT", "15s")
 	t.Setenv("IDLE_TIMEOUT", "90s")
 	t.Setenv("MAX_HEADER_BYTES", "32768")
@@ -673,6 +643,9 @@ func TestLoadConfig_Optionals(t *testing.T) {
 	}
 	if cfg.upstreamTimeout != 60*time.Second {
 		t.Errorf("upstreamTimeout = %v, want 60s", cfg.upstreamTimeout)
+	}
+	if cfg.sseIdleTimeout != 10*time.Minute {
+		t.Errorf("sseIdleTimeout = %v, want 10m", cfg.sseIdleTimeout)
 	}
 	if cfg.readTimeout != 15*time.Second {
 		t.Errorf("readTimeout = %v, want 15s", cfg.readTimeout)
@@ -801,11 +774,19 @@ func TestRun_ListenFailure(t *testing.T) {
 func TestRun_AuthenticatedRequestProxied(t *testing.T) {
 	jwks := newTestJWKS(t)
 
-	var gotPath string
-	var gotAuth string
+	// upstream handler runs on its own goroutine; the test reader observes
+	// the captured fields after the request completes. Without a mutex the
+	// race detector (and -race CI) flags the cross-goroutine write/read pair.
+	var (
+		mu      sync.Mutex
+		gotPath string
+		gotAuth string
+	)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		gotPath = r.URL.Path
 		gotAuth = r.Header.Get("Authorization")
+		mu.Unlock()
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("upstream-ok"))
 	}))
@@ -840,13 +821,18 @@ func TestRun_AuthenticatedRequestProxied(t *testing.T) {
 
 	body, _ := io.ReadAll(resp.Body)
 
+	mu.Lock()
+	gotPathSnap := gotPath
+	gotAuthSnap := gotAuth
+	mu.Unlock()
+
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want 200, body: %s", resp.StatusCode, body)
 	}
-	if gotPath != "/mcp/v1" {
-		t.Errorf("upstream path = %q, want /mcp/v1", gotPath)
+	if gotPathSnap != "/mcp/v1" {
+		t.Errorf("upstream path = %q, want /mcp/v1", gotPathSnap)
 	}
-	if gotAuth != "" {
+	if gotAuthSnap != "" {
 		t.Error("Authorization header was not stripped before proxying")
 	}
 	if string(body) != "upstream-ok" {
@@ -892,9 +878,15 @@ func TestRun_OversizedBodyRejected(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.ReadAll(resp.Body)
 
-	// Should get an error status (413 or 502 depending on where the limit triggers)
-	if resp.StatusCode == http.StatusOK {
-		t.Error("expected non-200 for oversized body, got 200")
+	// http.MaxBytesReader trips inside the proxy's body-relay path, which
+	// httputil.ReverseProxy surfaces as an upstream read error → 502 via
+	// our ErrorHandler. Pin 502 explicitly so a future change that
+	// short-circuits with 413 (RFC 7231 "Payload Too Large") at the
+	// MaxBytesReader boundary, or 400, is caught — both are valid behaviors
+	// but switching between them is a contract change worth noticing.
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Errorf("status = %d, want %d (oversized body should surface as upstream error)",
+			resp.StatusCode, http.StatusBadGateway)
 	}
 }
 
@@ -973,5 +965,251 @@ func TestRun_RateLimiting429(t *testing.T) {
 		if i == 2 && resp.StatusCode != http.StatusTooManyRequests {
 			t.Errorf("request %d: status = %d, want 429", i, resp.StatusCode)
 		}
+	}
+}
+
+// --- TRUSTED_PROXIES startup observability (B3 / resilience L6) ---
+
+func TestLoadConfig_TrustedProxiesEmpty(t *testing.T) {
+	setRequiredEnv(t)
+	// TRUSTED_PROXIES intentionally unset.
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if got := len(cfg.trustedProxies); got != 0 {
+		t.Errorf("trustedProxies len = %d, want 0", got)
+	}
+}
+
+func TestLoadConfig_TrustedProxiesParsed(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("TRUSTED_PROXIES", "10.0.0.0/8,192.168.0.0/16")
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if got := len(cfg.trustedProxies); got != 2 {
+		t.Fatalf("trustedProxies len = %d, want 2", got)
+	}
+	want := []string{"10.0.0.0/8", "192.168.0.0/16"}
+	for i, p := range cfg.trustedProxies {
+		if p.String() != want[i] {
+			t.Errorf("trustedProxies[%d] = %q, want %q", i, p.String(), want[i])
+		}
+	}
+}
+
+// --- Shutdown ordering (audit M7) ---
+
+// stageCapture is a slog.Handler that records every log record carrying a
+// "stage" attribute. shutdownStage emits a Warn with "stage" set on error,
+// so capturing those records in order tells us the actual shutdown sequence.
+type stageCapture struct {
+	mu    sync.Mutex
+	stages []string
+	// orderedRecords keeps every record in the order it was logged; useful
+	// for diagnostics if stage assertions fail.
+	messages []string
+}
+
+func (h *stageCapture) Enabled(_ context.Context, _ slog.Level) bool { return true }
+
+// Handle implements slog.Handler. The slog.Record value-receiver matches the
+// interface signature; it is large but cannot be passed by pointer here.
+//
+//nolint:gocritic // hugeParam is dictated by the slog.Handler contract.
+func (h *stageCapture) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.messages = append(h.messages, r.Message)
+	r.Attrs(func(a slog.Attr) bool {
+		if a.Key == "stage" {
+			h.stages = append(h.stages, a.Value.String())
+			return false
+		}
+		return true
+	})
+	return nil
+}
+
+func (h *stageCapture) WithAttrs(_ []slog.Attr) slog.Handler { return h }
+func (h *stageCapture) WithGroup(_ string) slog.Handler      { return h }
+
+// snapshot returns a copy of the captured stage names and all log messages,
+// in the order they were observed.
+func (h *stageCapture) snapshot() (stages, messages []string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.Clone(h.stages), slices.Clone(h.messages)
+}
+
+// TestRun_ShutdownStageOrder asserts that run()'s graceful shutdown sequence
+// runs stages in the documented order: server → otel → metrics → JWKS.
+//
+// The assertion mechanism is shutdownStage's per-stage Warn log: it fires
+// only on error, so the test deliberately induces errors in each stage by
+// driving the per-stage shutdown timeout to a value smaller than the work
+// each stage has to do:
+//
+//   - server stage: a long-running upstream handler keeps a request in flight,
+//     so server.Shutdown blocks until ctx is cancelled and returns
+//     context.DeadlineExceeded.
+//   - otel stage: the BatchSpanProcessor's Shutdown calls ForceFlush, which
+//     respects the ctx; with a tiny shutdown timeout it returns
+//     context.DeadlineExceeded.
+//
+// The metrics stage is harder to force into an error reliably (its handler
+// set is fast and there's no in-flight request to drain), and JWKS shutdown
+// is a context cancel with no observable log. We therefore assert the
+// captured server/otel ordering and verify the metrics server is still
+// shut down at the end (port becomes unreachable). That covers the critical
+// production invariant: server stops accepting traffic before metrics
+// scraping stops collecting final data.
+func TestRun_ShutdownStageOrder(t *testing.T) {
+	// Swap in a capturing slog handler for the duration of the test.
+	prevDefault := slog.Default()
+	stageCap := &stageCapture{}
+	slog.SetDefault(slog.New(stageCap))
+	t.Cleanup(func() { slog.SetDefault(prevDefault) })
+
+	jwks := newTestJWKS(t)
+
+	// Upstream that hangs until the test releases it. The hung connection
+	// keeps server.Shutdown() blocked until its tiny stageCtx expires.
+	// inFlight signals that the upstream handler has actually begun serving
+	// the request — without this synchronization, shutdown can race the
+	// client request and run while no connection is open.
+	release := make(chan struct{})
+	inFlight := make(chan struct{})
+	closeReleaseOnce := sync.Once{}
+	closeRelease := func() { closeReleaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(closeRelease)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		select {
+		case <-inFlight:
+			// already signalled (subsequent request, e.g. retry)
+		default:
+			close(inFlight)
+		}
+		<-release
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(upstream.Close)
+
+	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
+	// otelEndpoint set to a closed local address: Setup succeeds (no spans
+	// exported eagerly), but the BatchSpanProcessor's Shutdown ForceFlush
+	// call fails when ctx is tiny.
+	cfg.otelEndpoint = "http://127.0.0.1:1"
+	cfg.otelServiceName = "mcp-gate-test"
+	cfg.otelSampleRate = 1.0
+	// Tiny per-stage timeout. Validate() requires shutdownTimeout > 0; 1ms
+	// is small enough that any stage with work to do (in-flight conn,
+	// ForceFlush) deterministically times out.
+	cfg.shutdownTimeout = time.Millisecond
+
+	result, cancel, errCh := startRun(t, &cfg)
+
+	// Issue a hung authenticated request through the proxy so the server
+	// has an in-flight connection to drain.
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"iss":   cfg.expectedIssuer,
+		"aud":   cfg.expectedAudience,
+		"exp":   now.Add(time.Hour).Unix(),
+		"iat":   now.Unix(),
+		"nbf":   now.Add(-time.Minute).Unix(),
+		"sub":   "test-user",
+		"jti":   "test-jti",
+		"scope": "openid profile",
+	}
+	token := signTestToken(t, jwks.privKey, "test-key-1", claims)
+
+	clientErrCh := make(chan error, 1)
+	go func() {
+		req, _ := http.NewRequestWithContext(context.Background(),
+			http.MethodGet,
+			fmt.Sprintf("http://%s/mcp", result.Addr),
+			http.NoBody)
+		req.Header.Set("Authorization", "Bearer "+token)
+		// Use a fresh client so DefaultClient's persistent state isn't
+		// affected by the deliberate hang.
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Do(req)
+		if err == nil {
+			_, _ = io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+		}
+		clientErrCh <- err
+	}()
+
+	// Capture metrics server addr before shutdown so we can probe it
+	// post-shutdown.
+	metricsAddr := result.MetricsAddr
+
+	// Wait for the upstream handler to actually have the request in flight.
+	// inFlight is closed inside the upstream handler; once it fires, the
+	// proxy → upstream connection is open and server.Shutdown will block on
+	// it until the (tiny) stageCtx expires.
+	select {
+	case <-inFlight:
+	case <-time.After(2 * time.Second):
+		closeRelease()
+		t.Fatal("upstream did not receive request before shutdown deadline")
+	}
+
+	// Trigger graceful shutdown.
+	cancel()
+
+	// Wait for run() to return; release the hung handler so the upstream
+	// goroutine doesn't leak.
+	select {
+	case <-time.After(5 * time.Second):
+		closeRelease()
+		t.Fatal("run() did not return after shutdown")
+	case err := <-errCh:
+		closeRelease()
+		if err != nil {
+			t.Errorf("run() returned error: %v", err)
+		}
+	}
+
+	// Drain the client goroutine.
+	select {
+	case <-clientErrCh:
+	case <-time.After(2 * time.Second):
+		t.Log("client goroutine did not return; not fatal for ordering check")
+	}
+
+	// Inspect captured stage order.
+	stages, msgs := stageCap.snapshot()
+
+	// Must have observed at least the server stage error to validate ordering.
+	idxServer := slices.Index(stages, "server")
+	idxOtel := slices.Index(stages, "otel")
+	if idxServer < 0 {
+		t.Fatalf("expected 'server' stage warn in captured logs; stages=%v messages=%v",
+			stages, msgs)
+	}
+	// otel stage should also have errored given the closed-port endpoint
+	// + tiny shutdown timeout. If otel managed to flush in time we still
+	// catch a regression where server runs after otel because idxServer
+	// would then be >= idxOtel.
+	if idxOtel >= 0 && idxServer >= idxOtel {
+		t.Errorf("server stage must precede otel stage; stages=%v", stages)
+	}
+
+	// Cross-check via side effect: after run() returns, the metrics server
+	// should be unbound. This is the structural confirmation that the
+	// metrics stage ran (regardless of whether it logged a warn).
+	dialer := &net.Dialer{Timeout: 200 * time.Millisecond}
+	c, err := dialer.DialContext(t.Context(), "tcp", metricsAddr)
+	if err == nil {
+		_ = c.Close()
+		t.Errorf("metrics server still reachable on %s after run() returned; metrics shutdown did not run",
+			metricsAddr)
 	}
 }

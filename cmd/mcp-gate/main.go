@@ -91,6 +91,7 @@ type runConfig struct {
 	maxConcurrentPerIP  int
 	maxTotalConnections int
 	upstreamTimeout     time.Duration
+	sseIdleTimeout      time.Duration
 	readTimeout         time.Duration
 	idleTimeout         time.Duration
 	maxHeaderBytes      int
@@ -147,31 +148,16 @@ func main() {
 	}
 }
 
-// validate checks that all runConfig fields are sensible.
+// validate enforces the numeric range invariants that loadConfig cannot
+// guarantee on its own. Required-string and URL-shape checks are intentionally
+// omitted because loadConfig already performs them via requireEnv and
+// url.ParseRequestURI before constructing a runConfig; duplicating them here
+// drifted out of sync with loadConfig in the past. The single nil-pointer
+// guard on upstreamURL remains because a test caller building a runConfig by
+// hand can leave it zero, and proxy.New would nil-deref.
 func (cfg *runConfig) validate() error {
-	if cfg.listenAddr == "" {
-		return errors.New("listen address is required")
-	}
 	if cfg.upstreamURL == nil {
 		return errors.New("upstream URL is required")
-	}
-	if s := cfg.upstreamURL.Scheme; s != "http" && s != "https" {
-		return fmt.Errorf("upstream URL must use http:// or https://, got %s", s)
-	}
-	if cfg.resourceURI == "" {
-		return errors.New("resource URI is required")
-	}
-	if cfg.authServer == "" {
-		return errors.New("authorization server is required")
-	}
-	if cfg.jwksURI == "" {
-		return errors.New("JWKS URI is required")
-	}
-	if cfg.expectedIssuer == "" {
-		return errors.New("expected issuer is required")
-	}
-	if cfg.expectedAudience == "" {
-		return errors.New("expected audience is required")
 	}
 	if cfg.jwksRefreshInterval <= 0 {
 		return fmt.Errorf("JWKS refresh interval must be positive, got %s", cfg.jwksRefreshInterval)
@@ -196,6 +182,9 @@ func (cfg *runConfig) validate() error {
 	}
 	if cfg.upstreamTimeout <= 0 {
 		return fmt.Errorf("upstream timeout must be positive, got %s", cfg.upstreamTimeout)
+	}
+	if cfg.sseIdleTimeout <= 0 {
+		return fmt.Errorf("SSE idle timeout must be positive, got %s", cfg.sseIdleTimeout)
 	}
 	if cfg.readTimeout <= 0 {
 		return fmt.Errorf("read timeout must be positive, got %s", cfg.readTimeout)
@@ -235,6 +224,22 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *
 
 	// Record build info metric
 	metrics.Info.WithLabelValues(version).Set(1)
+
+	// TRUSTED_PROXIES startup audit (resilience L6). When a deployment is
+	// behind Cloudflare or any fronting proxy and this list is misconfigured,
+	// every client IP collapses to the immediate-upstream proxy's IP and
+	// per-IP rate limiting / concurrent-limit silently defeats. Surfacing the
+	// parsed list at Info on every boot gives operators a config-audit trail;
+	// the gauge keeps the same signal visible on the dashboard.
+	cidrStrings := make([]string, 0, len(cfg.trustedProxies))
+	for _, p := range cfg.trustedProxies {
+		cidrStrings = append(cidrStrings, p.String())
+	}
+	slog.Info("trusted proxies configured",
+		"count", len(cfg.trustedProxies),
+		"cidrs", cidrStrings,
+	)
+	metrics.TrustedProxyCIDRs.Set(float64(len(cfg.trustedProxies)))
 
 	// Start metrics server on separate port
 	metricsSrv, err := metrics.NewServer(cfg.metricsAddr)
@@ -305,6 +310,7 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *
 	// current by the background polling goroutine it spawns.)
 	tc := proxy.DefaultTransportConfig()
 	tc.ResponseHeaderTimeout = cfg.upstreamTimeout
+	tc.SSEIdleTimeout = cfg.sseIdleTimeout
 	proxyHandler := proxy.New(cfg.upstreamURL, tc)
 
 	// Register routes (Go 1.22+ method-specific patterns)
@@ -555,17 +561,7 @@ func loadConfig() (runConfig, error) {
 		return runConfig{}, err
 	}
 
-	upstreamTimeout, err := getenvDuration("UPSTREAM_TIMEOUT", "120s")
-	if err != nil {
-		return runConfig{}, err
-	}
-
-	readTimeout, err := getenvDuration("READ_TIMEOUT", "30s")
-	if err != nil {
-		return runConfig{}, err
-	}
-
-	idleTimeout, err := getenvDuration("IDLE_TIMEOUT", "120s")
+	timeouts, err := loadServerTimeouts()
 	if err != nil {
 		return runConfig{}, err
 	}
@@ -606,9 +602,10 @@ func loadConfig() (runConfig, error) {
 		rateLimitBurst:      rateLimitBurst,
 		maxConcurrentPerIP:  maxConcurrentPerIP,
 		maxTotalConnections: maxTotalConnections,
-		upstreamTimeout:     upstreamTimeout,
-		readTimeout:         readTimeout,
-		idleTimeout:         idleTimeout,
+		upstreamTimeout:     timeouts.upstream,
+		sseIdleTimeout:      timeouts.sseIdle,
+		readTimeout:         timeouts.read,
+		idleTimeout:         timeouts.idle,
 		maxHeaderBytes:      maxHeaderBytes,
 		metricsAddr:         metricsAddr,
 		otelEndpoint:        otelEndpoint,
@@ -666,6 +663,42 @@ func getenvFloat(key, fallback string) (float64, error) {
 		return 0, fmt.Errorf("%s is not a valid float: %w", key, err)
 	}
 	return f, nil
+}
+
+// serverTimeouts groups the four user-tunable timeouts that bound an HTTP
+// request lifecycle. Extracted so loadConfig stays under the gocyclo
+// threshold; the grouping is also a useful reading aid for operators
+// auditing timeout policy.
+type serverTimeouts struct {
+	upstream time.Duration // first response byte from upstream
+	sseIdle  time.Duration // idle gap between SSE bytes
+	read     time.Duration // inbound request read deadline
+	idle     time.Duration // keep-alive idle deadline
+}
+
+// loadServerTimeouts reads UPSTREAM_TIMEOUT, SSE_IDLE_TIMEOUT, READ_TIMEOUT
+// and IDLE_TIMEOUT with sensible defaults. SSE_IDLE_TIMEOUT bounds the gap
+// between bytes on a streamed text/event-stream response — without it, a
+// silent SSE pins a goroutine, a TCP slot, and a concurrent-limit slot
+// indefinitely (resilience M6).
+func loadServerTimeouts() (serverTimeouts, error) {
+	upstream, err := getenvDuration("UPSTREAM_TIMEOUT", "120s")
+	if err != nil {
+		return serverTimeouts{}, err
+	}
+	sseIdle, err := getenvDuration("SSE_IDLE_TIMEOUT", "5m")
+	if err != nil {
+		return serverTimeouts{}, err
+	}
+	read, err := getenvDuration("READ_TIMEOUT", "30s")
+	if err != nil {
+		return serverTimeouts{}, err
+	}
+	idle, err := getenvDuration("IDLE_TIMEOUT", "120s")
+	if err != nil {
+		return serverTimeouts{}, err
+	}
+	return serverTimeouts{upstream: upstream, sseIdle: sseIdle, read: read, idle: idle}, nil
 }
 
 func splitCSV(s string) []string {
