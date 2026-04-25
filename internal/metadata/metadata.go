@@ -37,7 +37,9 @@ func Handler(meta ProtectedResourceMetadata) (http.HandlerFunc, error) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "max-age=3600")
+		// max-age=300 keeps caches fresh in case AUTHORIZATION_SERVER is reconfigured;
+		// must-revalidate forbids serving stale entries past the TTL.
+		w.Header().Set("Cache-Control", "max-age=300, must-revalidate")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(data)
 	}, nil
