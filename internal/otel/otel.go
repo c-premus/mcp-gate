@@ -68,6 +68,13 @@ func Setup(ctx context.Context, cfg Config) (*Provider, error) {
 
 	sampler := sdktrace.ParentBased(sdktrace.TraceIDRatioBased(cfg.SampleRate))
 
+	// Span-drop observability (resilience M5, mcpgate_otel_spans_dropped_total):
+	// the SDK's batch span processor (sdk/trace v1.43.0) increments an
+	// unexported atomic counter when its queue is full, but exposes no public
+	// callback or accessor — there is no WithDropHandler-style option as of
+	// today. Until upstream lands a hook, the counter declared in
+	// internal/metrics is a documented always-zero placeholder. Revisit when
+	// open-telemetry/opentelemetry-go ships a public observation surface.
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),

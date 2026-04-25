@@ -181,15 +181,27 @@ func NewMiddleware(cfg Config) (*Middleware, error) {
 	}, nil
 }
 
+// pollErrWarnThreshold is the number of consecutive poll-loop read failures
+// after which the goroutine escalates from Debug to Warn. Below the threshold
+// transient errors stay quiet so a single ctx-cancel race or storage hiccup
+// doesn't page; at and above it, repeated failures imply a real problem worth
+// surfacing in operator-facing logs. The counter is reset on every success.
+const pollErrWarnThreshold = 3
+
 // pollJWKSMetrics periodically reads the JWKS storage and updates the
 // mcpgate_jwks_keys_loaded gauge. When the set of key IDs changes relative
 // to the previous poll, it bumps mcpgate_jwks_last_key_change_timestamp.
+// Read failures increment mcpgate_jwks_poll_errors_total and escalate from
+// Debug to Warn after pollErrWarnThreshold consecutive failures (the counter
+// is the primary alerting signal; the log level escalation is a secondary
+// hint for on-call eyeballs).
 // The goroutine exits when ctx is cancelled.
 func pollJWKSMetrics(ctx context.Context, storage jwkset.Storage, lastFingerprint string, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	prev := lastFingerprint
+	consecutiveErrs := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -199,10 +211,25 @@ func pollJWKSMetrics(ctx context.Context, storage jwkset.Storage, lastFingerprin
 			if err != nil {
 				// Errors reading storage are distinct from refresh errors —
 				// the refresh goroutine reports its own failures via
-				// RefreshErrorHandler. Log at debug to avoid noise.
-				slog.Debug("JWKS metrics poll: storage read failed", "error", err)
+				// RefreshErrorHandler. Always increment the counter; promote
+				// to Warn only after consecutive failures so a single race
+				// doesn't spam logs.
+				metrics.JWKSPollErrorsTotal.Inc()
+				consecutiveErrs++
+				if consecutiveErrs >= pollErrWarnThreshold {
+					slog.Warn("JWKS metrics poll: storage read failing repeatedly",
+						"error", err,
+						"consecutive_failures", consecutiveErrs,
+					)
+				} else {
+					slog.Debug("JWKS metrics poll: storage read failed",
+						"error", err,
+						"consecutive_failures", consecutiveErrs,
+					)
+				}
 				continue
 			}
+			consecutiveErrs = 0
 			metrics.JWKSKeysLoaded.Set(float64(len(keys)))
 			fp := initialKeyFingerprint(keys)
 			if fp != prev {

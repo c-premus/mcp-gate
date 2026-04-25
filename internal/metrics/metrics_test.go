@@ -2,11 +2,31 @@ package metrics
 
 import (
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 )
+
+// waitForListener polls the given TCP address until a connection succeeds or
+// the deadline elapses. It replaces a fixed-duration sleep that flaked under
+// CI load — a 50 ms wait is too long when the listener is already up and not
+// long enough on a heavily loaded runner.
+func waitForListener(t *testing.T, addr string, timeout time.Duration) {
+	t.Helper()
+	dialer := &net.Dialer{Timeout: 100 * time.Millisecond}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		c, err := dialer.DialContext(t.Context(), "tcp", addr)
+		if err == nil {
+			_ = c.Close()
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatalf("listener at %s not reachable within %s", addr, timeout)
+}
 
 func TestNewServer_ListensAndServesMetrics(t *testing.T) {
 	srv, err := NewServer(":0")
@@ -17,8 +37,7 @@ func TestNewServer_ListensAndServesMetrics(t *testing.T) {
 	go func() { _ = srv.Serve() }()
 	t.Cleanup(func() { _ = srv.Shutdown(t.Context()) })
 
-	// Wait briefly for server to start
-	time.Sleep(50 * time.Millisecond)
+	waitForListener(t, srv.Addr(), time.Second)
 
 	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+srv.Addr()+"/metrics", http.NoBody)
 	resp, err := http.DefaultClient.Do(req)
@@ -46,7 +65,7 @@ func TestNewServer_HealthEndpoint(t *testing.T) {
 	go func() { _ = srv.Serve() }()
 	t.Cleanup(func() { _ = srv.Shutdown(t.Context()) })
 
-	time.Sleep(50 * time.Millisecond)
+	waitForListener(t, srv.Addr(), time.Second)
 
 	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+srv.Addr()+"/healthz", http.NoBody)
 	resp, err := http.DefaultClient.Do(req)
