@@ -30,6 +30,7 @@ func testMetadata() metadata.ProtectedResourceMetadata {
 }
 
 func TestHandler_GET_Returns200(t *testing.T) {
+	t.Parallel()
 	handler := mustHandler(t, testMetadata())
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/.well-known/oauth-protected-resource", http.NoBody)
 	w := httptest.NewRecorder()
@@ -42,6 +43,7 @@ func TestHandler_GET_Returns200(t *testing.T) {
 }
 
 func TestHandler_GET_ValidJSON(t *testing.T) {
+	t.Parallel()
 	handler := mustHandler(t, testMetadata())
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/.well-known/oauth-protected-resource", http.NoBody)
 	w := httptest.NewRecorder()
@@ -64,6 +66,7 @@ func TestHandler_GET_ValidJSON(t *testing.T) {
 }
 
 func TestHandler_GET_ContentType(t *testing.T) {
+	t.Parallel()
 	handler := mustHandler(t, testMetadata())
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/.well-known/oauth-protected-resource", http.NoBody)
 	w := httptest.NewRecorder()
@@ -77,6 +80,7 @@ func TestHandler_GET_ContentType(t *testing.T) {
 }
 
 func TestHandler_GET_CacheControl(t *testing.T) {
+	t.Parallel()
 	handler := mustHandler(t, testMetadata())
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/.well-known/oauth-protected-resource", http.NoBody)
 	w := httptest.NewRecorder()
@@ -90,6 +94,7 @@ func TestHandler_GET_CacheControl(t *testing.T) {
 }
 
 func TestHandler_POST_Returns405(t *testing.T) {
+	t.Parallel()
 	handler := mustHandler(t, testMetadata())
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/.well-known/oauth-protected-resource", http.NoBody)
 	w := httptest.NewRecorder()
@@ -102,6 +107,7 @@ func TestHandler_POST_Returns405(t *testing.T) {
 }
 
 func TestHandler_PUT_Returns405(t *testing.T) {
+	t.Parallel()
 	handler := mustHandler(t, testMetadata())
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/.well-known/oauth-protected-resource", http.NoBody)
 	w := httptest.NewRecorder()
@@ -114,6 +120,7 @@ func TestHandler_PUT_Returns405(t *testing.T) {
 }
 
 func TestHandler_DELETE_Returns405(t *testing.T) {
+	t.Parallel()
 	handler := mustHandler(t, testMetadata())
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodDelete, "/.well-known/oauth-protected-resource", http.NoBody)
 	w := httptest.NewRecorder()

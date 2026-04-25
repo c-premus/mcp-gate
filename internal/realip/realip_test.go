@@ -19,6 +19,7 @@ func mustParseCIDRs(t *testing.T, cidrs []string) []netip.Prefix {
 }
 
 func TestExtract_NoTrustedProxies(t *testing.T) {
+	t.Parallel()
 	// Without trusted proxies, always return RemoteAddr regardless of headers.
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 	r.RemoteAddr = "203.0.113.50:12345"
@@ -32,6 +33,7 @@ func TestExtract_NoTrustedProxies(t *testing.T) {
 }
 
 func TestExtract_TrustedProxy_XRealIP(t *testing.T) {
+	t.Parallel()
 	trusted := mustParseCIDRs(t, []string{"172.20.0.0/16"})
 
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
@@ -45,6 +47,7 @@ func TestExtract_TrustedProxy_XRealIP(t *testing.T) {
 }
 
 func TestExtract_TrustedProxy_XFF_Priority(t *testing.T) {
+	t.Parallel()
 	// X-Forwarded-For should take priority over X-Real-IP.
 	// Traefik resolves the trust chain into XFF but sets X-Real-IP
 	// to the direct peer (often a proxy IP, not the real client).
@@ -62,6 +65,7 @@ func TestExtract_TrustedProxy_XFF_Priority(t *testing.T) {
 }
 
 func TestExtract_TrustedProxy_XRealIP_IsTrusted(t *testing.T) {
+	t.Parallel()
 	// Real-world Traefik scenario: Traefik sets X-Real-IP to cloudflared's
 	// IP (a trusted proxy) and X-Forwarded-For to the resolved real client.
 	// X-Real-IP must be skipped because it's a trusted proxy address.
@@ -79,6 +83,7 @@ func TestExtract_TrustedProxy_XRealIP_IsTrusted(t *testing.T) {
 }
 
 func TestExtract_TrustedProxy_XFF_Simple(t *testing.T) {
+	t.Parallel()
 	trusted := mustParseCIDRs(t, []string{"172.20.0.0/16"})
 
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
@@ -92,6 +97,7 @@ func TestExtract_TrustedProxy_XFF_Simple(t *testing.T) {
 }
 
 func TestExtract_TrustedProxy_XFF_RightToLeft(t *testing.T) {
+	t.Parallel()
 	// Chain: client → proxy1 (trusted) → proxy2 (trusted) → mcp-gate
 	// XFF:   "203.0.113.50, 172.20.0.5, 172.20.0.6"
 	// Should return 203.0.113.50 (first untrusted from the right).
@@ -108,6 +114,7 @@ func TestExtract_TrustedProxy_XFF_RightToLeft(t *testing.T) {
 }
 
 func TestExtract_TrustedProxy_XFF_MultipleHeaders(t *testing.T) {
+	t.Parallel()
 	// Some proxies emit multiple X-Forwarded-For header instances instead of
 	// a single comma-joined value. Header.Values should collect all of them
 	// and the right-to-left walk should see the full chain.
@@ -126,6 +133,7 @@ func TestExtract_TrustedProxy_XFF_MultipleHeaders(t *testing.T) {
 }
 
 func TestExtract_TrustedProxy_XFF_MultipleHeaders_SpoofPrevention(t *testing.T) {
+	t.Parallel()
 	// Attacker injects a spoofed first XFF header before reaching a proxy that
 	// then appends the real client in a second XFF header. Right-to-left walk
 	// must see "spoofed, real-client, trusted-proxy" and stop at real-client.
@@ -143,6 +151,7 @@ func TestExtract_TrustedProxy_XFF_MultipleHeaders_SpoofPrevention(t *testing.T) 
 }
 
 func TestExtract_TrustedProxy_XFF_SpoofPrevention(t *testing.T) {
+	t.Parallel()
 	// Attacker prepends a fake IP: "1.2.3.4, 203.0.113.50, 172.20.0.5"
 	// Walking right-to-left skipping trusted: first untrusted = 203.0.113.50 (real client).
 	// The attacker's prepended 1.2.3.4 is ignored.
@@ -159,6 +168,7 @@ func TestExtract_TrustedProxy_XFF_SpoofPrevention(t *testing.T) {
 }
 
 func TestExtract_UntrustedPeer_IgnoresHeaders(t *testing.T) {
+	t.Parallel()
 	// Peer is NOT trusted — headers must be ignored even if set.
 	trusted := mustParseCIDRs(t, []string{"10.0.0.0/8"})
 
@@ -174,6 +184,7 @@ func TestExtract_UntrustedPeer_IgnoresHeaders(t *testing.T) {
 }
 
 func TestExtract_XFF_AllTrusted_FallsBack(t *testing.T) {
+	t.Parallel()
 	// All IPs in XFF are trusted — should fall back to RemoteAddr.
 	trusted := mustParseCIDRs(t, []string{"172.20.0.0/16"})
 
@@ -188,6 +199,7 @@ func TestExtract_XFF_AllTrusted_FallsBack(t *testing.T) {
 }
 
 func TestExtract_IPv6(t *testing.T) {
+	t.Parallel()
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 	r.RemoteAddr = "[2001:db8::1]:12345"
 
@@ -198,6 +210,7 @@ func TestExtract_IPv6(t *testing.T) {
 }
 
 func TestExtract_IPv6_Normalization(t *testing.T) {
+	t.Parallel()
 	// Ensure verbose IPv6 is normalized to canonical form.
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 	r.RemoteAddr = "[2001:0db8:0000:0000:0000:0000:0000:0001]:12345"
@@ -209,6 +222,7 @@ func TestExtract_IPv6_Normalization(t *testing.T) {
 }
 
 func TestExtract_IPv6_Trusted_XFF(t *testing.T) {
+	t.Parallel()
 	trusted := mustParseCIDRs(t, []string{"fd00::/8"})
 
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
@@ -222,6 +236,7 @@ func TestExtract_IPv6_Trusted_XFF(t *testing.T) {
 }
 
 func TestExtract_XRealIP_InvalidIP(t *testing.T) {
+	t.Parallel()
 	// Invalid X-Real-IP should fall through to XFF.
 	trusted := mustParseCIDRs(t, []string{"172.20.0.0/16"})
 
@@ -237,6 +252,7 @@ func TestExtract_XRealIP_InvalidIP(t *testing.T) {
 }
 
 func TestExtract_NoHeaders(t *testing.T) {
+	t.Parallel()
 	// Trusted peer but no forwarding headers — return RemoteAddr.
 	trusted := mustParseCIDRs(t, []string{"172.20.0.0/16"})
 
@@ -250,6 +266,7 @@ func TestExtract_NoHeaders(t *testing.T) {
 }
 
 func TestExtract_RemoteAddrNoPort(t *testing.T) {
+	t.Parallel()
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 	r.RemoteAddr = "203.0.113.50" // No port
 
@@ -266,6 +283,7 @@ func TestExtract_RemoteAddrNoPort(t *testing.T) {
 // consumers (rate-limit map key, slog client_ip field) get a stable
 // sentinel instead of a shared empty-string bucket.
 func TestExtract_EmptyRemoteAddr(t *testing.T) {
+	t.Parallel()
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 	r.RemoteAddr = ""
 
@@ -279,6 +297,7 @@ func TestExtract_EmptyRemoteAddr(t *testing.T) {
 // e.g. a Unix socket peer. Extract must not reflect the raw bytes into metric
 // labels or log keys; it falls through to the sentinel.
 func TestExtract_UnparseableRemoteAddr(t *testing.T) {
+	t.Parallel()
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 	r.RemoteAddr = "@" // unix-socket-ish garbage that's not an IP
 
@@ -291,6 +310,7 @@ func TestExtract_UnparseableRemoteAddr(t *testing.T) {
 // --- ParseCIDRs tests ---
 
 func TestParseCIDRs_Empty(t *testing.T) {
+	t.Parallel()
 	nets, err := ParseCIDRs(nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -301,6 +321,7 @@ func TestParseCIDRs_Empty(t *testing.T) {
 }
 
 func TestParseCIDRs_CIDR(t *testing.T) {
+	t.Parallel()
 	nets, err := ParseCIDRs([]string{"172.20.0.0/16", "10.0.0.0/8"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -314,6 +335,7 @@ func TestParseCIDRs_CIDR(t *testing.T) {
 }
 
 func TestParseCIDRs_BareIPv4(t *testing.T) {
+	t.Parallel()
 	nets, err := ParseCIDRs([]string{"172.20.0.1"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -327,6 +349,7 @@ func TestParseCIDRs_BareIPv4(t *testing.T) {
 }
 
 func TestParseCIDRs_BareIPv6(t *testing.T) {
+	t.Parallel()
 	nets, err := ParseCIDRs([]string{"2001:db8::1"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -340,6 +363,7 @@ func TestParseCIDRs_BareIPv6(t *testing.T) {
 }
 
 func TestParseCIDRs_Whitespace(t *testing.T) {
+	t.Parallel()
 	nets, err := ParseCIDRs([]string{"  172.20.0.0/16  ", "", "  "})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -350,6 +374,7 @@ func TestParseCIDRs_Whitespace(t *testing.T) {
 }
 
 func TestParseCIDRs_InvalidIP(t *testing.T) {
+	t.Parallel()
 	_, err := ParseCIDRs([]string{"not-an-ip"})
 	if err == nil {
 		t.Fatal("expected error for invalid IP")
@@ -357,6 +382,7 @@ func TestParseCIDRs_InvalidIP(t *testing.T) {
 }
 
 func TestParseCIDRs_InvalidCIDR(t *testing.T) {
+	t.Parallel()
 	_, err := ParseCIDRs([]string{"172.20.0.0/99"})
 	if err == nil {
 		t.Fatal("expected error for invalid CIDR")
@@ -364,6 +390,7 @@ func TestParseCIDRs_InvalidCIDR(t *testing.T) {
 }
 
 func TestParseCIDRs_RejectsIPv4CatchAll(t *testing.T) {
+	t.Parallel()
 	_, err := ParseCIDRs([]string{"0.0.0.0/0"})
 	if err == nil {
 		t.Fatal("expected error for 0.0.0.0/0 catch-all")
@@ -374,6 +401,7 @@ func TestParseCIDRs_RejectsIPv4CatchAll(t *testing.T) {
 }
 
 func TestParseCIDRs_RejectsIPv6CatchAll(t *testing.T) {
+	t.Parallel()
 	_, err := ParseCIDRs([]string{"::/0"})
 	if err == nil {
 		t.Fatal("expected error for ::/0 catch-all")
@@ -384,6 +412,7 @@ func TestParseCIDRs_RejectsIPv6CatchAll(t *testing.T) {
 }
 
 func TestParseCIDRs_RejectsCatchAllAmongValid(t *testing.T) {
+	t.Parallel()
 	// Even one catch-all among otherwise-valid entries must be rejected.
 	_, err := ParseCIDRs([]string{"172.20.0.0/16", "0.0.0.0/0"})
 	if err == nil {
@@ -392,6 +421,7 @@ func TestParseCIDRs_RejectsCatchAllAmongValid(t *testing.T) {
 }
 
 func TestMiddleware_StoresIPInContext(t *testing.T) {
+	t.Parallel()
 	trusted := mustParseCIDRs(t, []string{"10.0.0.0/8"})
 	mw := Middleware(trusted)
 
@@ -413,6 +443,7 @@ func TestMiddleware_StoresIPInContext(t *testing.T) {
 }
 
 func TestFromContext_NoMiddleware(t *testing.T) {
+	t.Parallel()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 	got := FromContext(req)
 	if got != "" {
@@ -421,6 +452,7 @@ func TestFromContext_NoMiddleware(t *testing.T) {
 }
 
 func TestMiddleware_NoTrustedProxies(t *testing.T) {
+	t.Parallel()
 	mw := Middleware(nil)
 
 	var gotIP string
@@ -441,6 +473,7 @@ func TestMiddleware_NoTrustedProxies(t *testing.T) {
 }
 
 func TestParseCIDRs_AcceptsNarrowCIDRs(t *testing.T) {
+	t.Parallel()
 	// /1 is broad but still narrower than /0 — must be accepted.
 	// Narrow internal ranges are the common case.
 	nets, err := ParseCIDRs([]string{"128.0.0.0/1", "172.20.0.0/16", "10.0.0.0/8"})

@@ -10,6 +10,7 @@ import (
 )
 
 func TestRouteClassifier(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		path string
 		want string
@@ -23,6 +24,7 @@ func TestRouteClassifier(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
+			t.Parallel()
 			r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.path, http.NoBody)
 			if got := RouteClassifier(r); got != tt.want {
 				t.Errorf("RouteClassifier(%q) = %q, want %q", tt.path, got, tt.want)
@@ -32,6 +34,7 @@ func TestRouteClassifier(t *testing.T) {
 }
 
 func TestResponseRecorder_CapturesStatus(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	rec := &responseRecorder{ResponseWriter: w, statusCode: http.StatusOK}
 
@@ -48,6 +51,7 @@ func TestResponseRecorder_CapturesStatus(t *testing.T) {
 }
 
 func TestResponseRecorder_WriteDefaultsTo200(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	rec := &responseRecorder{ResponseWriter: w, statusCode: http.StatusOK}
 
@@ -58,6 +62,7 @@ func TestResponseRecorder_WriteDefaultsTo200(t *testing.T) {
 }
 
 func TestResponseRecorder_Flush(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	rec := &responseRecorder{ResponseWriter: w, statusCode: http.StatusOK}
 
@@ -66,6 +71,7 @@ func TestResponseRecorder_Flush(t *testing.T) {
 }
 
 func TestResponseRecorder_Unwrap(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	rec := &responseRecorder{ResponseWriter: w, statusCode: http.StatusOK}
 
@@ -95,6 +101,7 @@ func TestMiddleware_RecordsMetrics(t *testing.T) {
 }
 
 func TestTruncate(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		in   string
@@ -116,6 +123,7 @@ func TestTruncate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := truncate(tt.in, tt.max); got != tt.want {
 				t.Errorf("truncate(%q, %d) = %q, want %q", tt.in, tt.max, got, tt.want)
 			}

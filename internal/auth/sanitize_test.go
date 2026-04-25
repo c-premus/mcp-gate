@@ -3,6 +3,7 @@ package auth
 import "testing"
 
 func TestSanitizeQuotedString(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		in   string
@@ -30,6 +31,7 @@ func TestSanitizeQuotedString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := sanitizeQuotedString(tt.in)
 			if got != tt.want {
 				t.Errorf("sanitizeQuotedString(%q) = %q, want %q", tt.in, got, tt.want)

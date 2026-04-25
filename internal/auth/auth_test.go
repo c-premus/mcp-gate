@@ -166,6 +166,7 @@ func doRequest(t *testing.T, mw *auth.Middleware, authHeader string) *httptest.R
 }
 
 func TestValidToken(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -189,6 +190,7 @@ func TestValidToken(t *testing.T) {
 }
 
 func TestExpiredToken(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -205,6 +207,7 @@ func TestExpiredToken(t *testing.T) {
 }
 
 func TestMissingExp(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -226,6 +229,7 @@ func TestMissingExp(t *testing.T) {
 }
 
 func TestWrongIssuer(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -242,6 +246,7 @@ func TestWrongIssuer(t *testing.T) {
 }
 
 func TestWrongAudience(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -258,6 +263,7 @@ func TestWrongAudience(t *testing.T) {
 }
 
 func TestHS256Rejected(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -285,6 +291,7 @@ func TestHS256Rejected(t *testing.T) {
 }
 
 func TestAlgNoneRejected(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -312,6 +319,7 @@ func TestAlgNoneRejected(t *testing.T) {
 }
 
 func TestMissingScopeReturns403(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -334,6 +342,7 @@ func TestMissingScopeReturns403(t *testing.T) {
 }
 
 func TestAudAsString(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -351,6 +360,7 @@ func TestAudAsString(t *testing.T) {
 }
 
 func TestAudAsArray(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -368,6 +378,7 @@ func TestAudAsArray(t *testing.T) {
 }
 
 func TestFutureIatRejected(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -385,6 +396,7 @@ func TestFutureIatRejected(t *testing.T) {
 }
 
 func TestFutureIatWithinLeeway(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -402,6 +414,7 @@ func TestFutureIatWithinLeeway(t *testing.T) {
 }
 
 func TestTypAtJwtPasses(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -417,6 +430,7 @@ func TestTypAtJwtPasses(t *testing.T) {
 }
 
 func TestTypJWTDefaultPasses(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -433,6 +447,7 @@ func TestTypJWTDefaultPasses(t *testing.T) {
 }
 
 func TestTypWrongValueRejected(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -448,6 +463,7 @@ func TestTypWrongValueRejected(t *testing.T) {
 }
 
 func TestNoAuthorizationHeader(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -472,6 +488,7 @@ func TestNoAuthorizationHeader(t *testing.T) {
 }
 
 func TestMalformedBearer(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -485,6 +502,7 @@ func TestMalformedBearer(t *testing.T) {
 }
 
 func TestIsReady(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -518,6 +536,7 @@ func TestJWKSMetricsPrimedOnStartup(t *testing.T) {
 }
 
 func TestEmptyBearerToken(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -540,6 +559,7 @@ func TestEmptyBearerToken(t *testing.T) {
 // --- Security audit tests ---
 
 func TestFutureNbfRejected(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -557,6 +577,7 @@ func TestFutureNbfRejected(t *testing.T) {
 }
 
 func TestFutureNbfWithinLeeway(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -574,6 +595,7 @@ func TestFutureNbfWithinLeeway(t *testing.T) {
 }
 
 func TestMissingNbfAccepted(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -601,6 +623,7 @@ func TestMissingNbfAccepted(t *testing.T) {
 // Scopes type directly, including edge cases (null, invalid types) that the
 // JWT-level integration tests don't hit.
 func TestScopesUnmarshalJSON(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		input   string
@@ -620,6 +643,7 @@ func TestScopesUnmarshalJSON(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			var got auth.Scopes
 			err := json.Unmarshal([]byte(tt.input), &got)
 			if tt.wantErr {
@@ -641,6 +665,7 @@ func TestScopesUnmarshalJSON(t *testing.T) {
 // TestScopesMarshalJSON verifies that Scopes serializes to the RFC 6749
 // space-separated string form on output, regardless of how it was populated.
 func TestScopesMarshalJSON(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input auth.Scopes
@@ -653,6 +678,7 @@ func TestScopesMarshalJSON(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := json.Marshal(tt.input)
 			if err != nil {
 				t.Fatalf("marshal error: %v", err)
@@ -668,6 +694,7 @@ func TestScopesMarshalJSON(t *testing.T) {
 // the OAuth `scope` claim as a JSON array instead of the RFC 6749 space-separated
 // string form. See GitHub issue #1.
 func TestScopeClaimAsJSONArray(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -694,6 +721,7 @@ func TestScopeClaimAsJSONArray(t *testing.T) {
 // TestScopeClaimAsSpaceSeparatedString covers the RFC 6749 string form emitted
 // by Authentik and most OIDC providers.
 func TestScopeClaimAsSpaceSeparatedString(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -718,6 +746,7 @@ func TestScopeClaimAsSpaceSeparatedString(t *testing.T) {
 }
 
 func TestEmptyScopeRejected(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -734,6 +763,7 @@ func TestEmptyScopeRejected(t *testing.T) {
 }
 
 func TestUnknownKidRejected(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -768,6 +798,7 @@ func TestUnknownKidRejected(t *testing.T) {
 // surface to the client. This test pins the absence of token bytes in the
 // response body across four common error classes.
 func TestJWTErrorClassificationStable(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 	mw := newMiddleware(t, ts, []string{"openid"})
@@ -810,6 +841,7 @@ func TestJWTErrorClassificationStable(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			w := doRequest(t, mw, "Bearer "+tc.builder())
 			if w.Code != http.StatusUnauthorized {
 				t.Fatalf("status = %d, want 401", w.Code)
@@ -834,6 +866,7 @@ func TestJWTErrorClassificationStable(t *testing.T) {
 // known cached kid so the signature check is the only gate. Signature verify
 // must fail; no other path should admit the token.
 func TestSignatureForgeryWithKnownKID(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -861,6 +894,7 @@ func TestSignatureForgeryWithKnownKID(t *testing.T) {
 }
 
 func TestLargeTokenRejected(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -886,6 +920,7 @@ func TestLargeTokenRejected(t *testing.T) {
 //
 // The prior version of this test asserted neither outcome.
 func TestMalformedJWKSResponse(t *testing.T) {
+	t.Parallel()
 	badServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"not": "jwks"}`))
@@ -920,6 +955,7 @@ func TestMalformedJWKSResponse(t *testing.T) {
 }
 
 func TestErrorResponseNoInternalDetails(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -952,6 +988,7 @@ func TestErrorResponseNoInternalDetails(t *testing.T) {
 }
 
 func TestMissingSubjectRejected(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -980,6 +1017,7 @@ func TestMissingSubjectRejected(t *testing.T) {
 }
 
 func TestEmptySubjectRejected(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -996,6 +1034,7 @@ func TestEmptySubjectRejected(t *testing.T) {
 }
 
 func TestRS384Rejected(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -1019,6 +1058,7 @@ func TestRS384Rejected(t *testing.T) {
 }
 
 func TestEmptyRequiredScopesAcceptsAnyScope(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
@@ -1036,6 +1076,7 @@ func TestEmptyRequiredScopesAcceptsAnyScope(t *testing.T) {
 }
 
 func TestNewMiddleware_MissingJWKSURI(t *testing.T) {
+	t.Parallel()
 	_, err := auth.NewMiddleware(auth.Config{
 		Ctx:              t.Context(),
 		JWKSURI:          "",
@@ -1051,6 +1092,7 @@ func TestNewMiddleware_MissingJWKSURI(t *testing.T) {
 }
 
 func TestNewMiddleware_MissingExpectedIssuer(t *testing.T) {
+	t.Parallel()
 	_, err := auth.NewMiddleware(auth.Config{
 		Ctx:              t.Context(),
 		JWKSURI:          "https://example.com/jwks",
@@ -1066,6 +1108,7 @@ func TestNewMiddleware_MissingExpectedIssuer(t *testing.T) {
 }
 
 func TestNewMiddleware_MissingExpectedAudience(t *testing.T) {
+	t.Parallel()
 	_, err := auth.NewMiddleware(auth.Config{
 		Ctx:              t.Context(),
 		JWKSURI:          "https://example.com/jwks",
@@ -1081,6 +1124,7 @@ func TestNewMiddleware_MissingExpectedAudience(t *testing.T) {
 }
 
 func TestMultipleAuthorizationHeaders(t *testing.T) {
+	t.Parallel()
 	ts := newTestSetup(t)
 	defer ts.Close()
 
