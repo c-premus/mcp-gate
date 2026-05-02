@@ -8,6 +8,12 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.16.0] - 2026-05-02
+
+### Features
+
+- feat(ratelimit): Redis-backed coordinated limiter
+
 ## [0.15.1] - 2026-04-30
 
 ### Fixes
@@ -17,6 +23,10 @@ but intentionally omitted here to keep the changelog signal-dense.
 - fix(ci): Switch Forgejo registry+API auth from github.token to FORGE_TOKEN
 - fix(ci): clean stale runner state before mirror clone
 - fix(ci): materialize main in mirror clone before filter-repo
+
+### Maintenance
+
+- chore(changelog): update for v0.15.1
 
 ## [0.15.0] - 2026-04-29
 
@@ -345,6 +355,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.16.0]: https://github.com/c-premus/mcp-gate/compare/v0.15.1...v0.16.0
 [0.15.1]: https://github.com/c-premus/mcp-gate/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/c-premus/mcp-gate/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/c-premus/mcp-gate/compare/v0.13.0...v0.14.0
