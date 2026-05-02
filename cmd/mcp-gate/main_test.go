@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -1211,5 +1212,166 @@ func TestRun_ShutdownStageOrder(t *testing.T) {
 		_ = c.Close()
 		t.Errorf("metrics server still reachable on %s after run() returned; metrics shutdown did not run",
 			metricsAddr)
+	}
+}
+
+// --- Redis rate-limit backend selection ---
+
+func TestRun_RedisBackendStartsAndServes(t *testing.T) {
+	mr := miniredis.RunT(t)
+
+	jwks := newTestJWKS(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
+	cfg.redisAddr = mr.Addr()
+	cfg.redisTimeout = 100 * time.Millisecond
+	cfg.redisKeyPrefix = "test:rl:"
+
+	result, cancel, errCh := startRun(t, &cfg)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
+		"http://"+result.Addr+"/.well-known/oauth-protected-resource", http.NoBody)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("metadata request: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("metadata status = %d, want 200", resp.StatusCode)
+	}
+
+	cancel()
+	if err := <-errCh; err != nil {
+		t.Errorf("run() returned error: %v", err)
+	}
+}
+
+func TestRun_RedisAuthFailsWhenWrongPassword(t *testing.T) {
+	mr := miniredis.RunT(t)
+	mr.RequireAuth("correct-horse")
+
+	jwks := newTestJWKS(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	defer upstream.Close()
+
+	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
+	cfg.redisAddr = mr.Addr()
+	cfg.redisPassword = "wrong"
+	cfg.redisTimeout = 100 * time.Millisecond
+
+	_, err := run(t.Context(), &cfg, nil)
+	if err == nil {
+		t.Fatal("run() with bad Redis password: expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "redis ping") {
+		t.Errorf("error should mention redis ping, got: %v", err)
+	}
+}
+
+func TestRun_RedisUnreachableFails(t *testing.T) {
+	// Reserve a TCP port and immediately close it so connecting refuses.
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close()
+
+	jwks := newTestJWKS(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	defer upstream.Close()
+
+	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
+	cfg.redisAddr = addr
+	cfg.redisTimeout = 100 * time.Millisecond
+
+	_, err = run(t.Context(), &cfg, nil)
+	if err == nil {
+		t.Fatal("run() with unreachable Redis: expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "redis ping") {
+		t.Errorf("error should mention redis ping, got: %v", err)
+	}
+}
+
+func TestLoadConfig_RedisDefaults(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("REDIS_ADDR", "")
+	t.Setenv("REDIS_USERNAME", "")
+	t.Setenv("REDIS_PASSWORD", "")
+	t.Setenv("REDIS_DB", "")
+	t.Setenv("REDIS_TIMEOUT", "")
+	t.Setenv("REDIS_KEY_PREFIX", "")
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.redisAddr != "" {
+		t.Errorf("redisAddr = %q, want empty", cfg.redisAddr)
+	}
+	if cfg.redisUsername != "" {
+		t.Errorf("redisUsername = %q, want empty", cfg.redisUsername)
+	}
+	if cfg.redisPassword != "" {
+		t.Errorf("redisPassword = %q, want empty", cfg.redisPassword)
+	}
+	if cfg.redisDB != 0 {
+		t.Errorf("redisDB = %d, want 0", cfg.redisDB)
+	}
+	if cfg.redisTimeout != 100*time.Millisecond {
+		t.Errorf("redisTimeout = %v, want 100ms", cfg.redisTimeout)
+	}
+	if cfg.redisKeyPrefix != "mcpgate:rl:" {
+		t.Errorf("redisKeyPrefix = %q, want mcpgate:rl:", cfg.redisKeyPrefix)
+	}
+}
+
+func TestLoadConfig_RedisOverrides(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("REDIS_ADDR", "redis.internal:6390")
+	t.Setenv("REDIS_USERNAME", "mcpgate")
+	t.Setenv("REDIS_PASSWORD", "p@s/s:w?rd#1") // chars that would need URL encoding
+	t.Setenv("REDIS_DB", "3")
+	t.Setenv("REDIS_TIMEOUT", "250ms")
+	t.Setenv("REDIS_KEY_PREFIX", "custom:")
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.redisAddr != "redis.internal:6390" {
+		t.Errorf("redisAddr = %q", cfg.redisAddr)
+	}
+	if cfg.redisUsername != "mcpgate" {
+		t.Errorf("redisUsername = %q", cfg.redisUsername)
+	}
+	if cfg.redisPassword != "p@s/s:w?rd#1" {
+		t.Errorf("redisPassword = %q (the special-character round-trip is the load-bearing assertion)", cfg.redisPassword)
+	}
+	if cfg.redisDB != 3 {
+		t.Errorf("redisDB = %d", cfg.redisDB)
+	}
+	if cfg.redisTimeout != 250*time.Millisecond {
+		t.Errorf("redisTimeout = %v", cfg.redisTimeout)
+	}
+	if cfg.redisKeyPrefix != "custom:" {
+		t.Errorf("redisKeyPrefix = %q", cfg.redisKeyPrefix)
+	}
+}
+
+func TestLoadConfig_RedisDBNonInteger(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("REDIS_DB", "not-a-number")
+
+	if _, err := loadConfig(); err == nil {
+		t.Fatal("expected error for non-integer REDIS_DB")
 	}
 }

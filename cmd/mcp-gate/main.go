@@ -25,6 +25,7 @@ import (
 	"github.com/c-premus/mcp-gate/internal/proxy"
 	"github.com/c-premus/mcp-gate/internal/ratelimit"
 	"github.com/c-premus/mcp-gate/internal/realip"
+	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
@@ -90,6 +91,12 @@ type runConfig struct {
 	rateLimitBurst      int
 	maxConcurrentPerIP  int
 	maxTotalConnections int
+	redisAddr           string
+	redisUsername       string
+	redisPassword       string
+	redisDB             int
+	redisTimeout        time.Duration
+	redisKeyPrefix      string
 	upstreamTimeout     time.Duration
 	sseIdleTimeout      time.Duration
 	readTimeout         time.Duration
@@ -353,21 +360,66 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *
 		mux.ServeHTTP(w, r)
 	})
 
-	// Per-IP rate limiter (token bucket with stale entry eviction)
-	rl := ratelimit.New(ctx, ratelimit.Config{
-		RPS:             cfg.rateLimitRPS,
-		Burst:           cfg.rateLimitBurst,
-		CleanupInterval: 5 * time.Minute,
-		StaleAfter: 10 * time.Minute,
-	})
+	// Per-IP rate limiter. With REDIS_ADDR set, the limiter is backed by Redis
+	// so per-IP RPS is enforced globally across replicas; otherwise it falls
+	// back to the in-process token bucket (per-replica fragmentation, OK for
+	// single-replica deploys). Backend is exposed on the
+	// mcpgate_ratelimit_backend_info gauge for dashboard visibility.
+	var rlMiddleware func(http.Handler) http.Handler
+	if cfg.redisAddr != "" {
+		rdb := redis.NewClient(&redis.Options{
+			Addr:     cfg.redisAddr,
+			Username: cfg.redisUsername,
+			Password: cfg.redisPassword,
+			DB:       cfg.redisDB,
+		})
+		pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
+		pingErr := rdb.Ping(pingCtx).Err()
+		pingCancel()
+		if pingErr != nil {
+			_ = rdb.Close()
+			return nil, fmt.Errorf("redis ping: %w", pingErr)
+		}
+		defer func() { _ = rdb.Close() }()
 
-	// Per-IP concurrent request limiter
+		redisLimiter := ratelimit.NewRedisLimiter(rdb, ratelimit.RedisConfig{
+			RPS:       cfg.rateLimitRPS,
+			Burst:     cfg.rateLimitBurst,
+			KeyPrefix: cfg.redisKeyPrefix,
+			Timeout:   cfg.redisTimeout,
+		})
+		rlMiddleware = redisLimiter.Middleware
+		metrics.RateLimitBackend.WithLabelValues("redis").Set(1)
+		metrics.RateLimitBackend.WithLabelValues("memory").Set(0)
+		slog.Info("rate limit backend: redis",
+			"redis_addr", cfg.redisAddr,
+			"redis_db", cfg.redisDB,
+			"key_prefix", cfg.redisKeyPrefix,
+			"timeout", cfg.redisTimeout,
+		)
+	} else {
+		rl := ratelimit.New(ctx, ratelimit.Config{
+			RPS:             cfg.rateLimitRPS,
+			Burst:           cfg.rateLimitBurst,
+			CleanupInterval: 5 * time.Minute,
+			StaleAfter:      10 * time.Minute,
+		})
+		rlMiddleware = rl.Middleware
+		metrics.RateLimitBackend.WithLabelValues("memory").Set(1)
+		metrics.RateLimitBackend.WithLabelValues("redis").Set(0)
+		slog.Info("rate limit backend: memory (per-replica)")
+	}
+
+	// Per-IP concurrent request limiter — intentionally per-replica. Its purpose
+	// is back-pressure scoped to each replica's resource budget, not global
+	// abuse mitigation; making it cross-replica would add a Redis round-trip
+	// to every request and risk cascading failures during Redis hiccups.
 	cl := ratelimit.NewConcurrentLimiter(cfg.maxConcurrentPerIP, cfg.maxTotalConnections)
 
 	// Handler wrapping order (outermost → innermost):
 	// otelhttp → realip → metrics → rateLimiter → concurrentLimiter → securityHeaders → mux
 	handler := cl.Middleware(securityHeaders)
-	handler = rl.Middleware(handler)
+	handler = rlMiddleware(handler)
 	handler = metrics.Middleware(handler)
 	handler = realip.Middleware(cfg.trustedProxies)(handler)
 	handler = otelhttp.NewHandler(handler, "mcp-gate")
@@ -561,6 +613,23 @@ func loadConfig() (runConfig, error) {
 		return runConfig{}, err
 	}
 
+	// Redis-backed rate limiter is opt-in: REDIS_ADDR unset → in-memory limiter
+	// (current behaviour, per-replica fragmentation). When set, REDIS_USERNAME,
+	// REDIS_PASSWORD, REDIS_DB are wired to the go-redis client so Vault can
+	// inject the password as a single env var without URL-encoding gymnastics.
+	redisAddr := os.Getenv("REDIS_ADDR")
+	redisUsername := os.Getenv("REDIS_USERNAME")
+	redisPassword := os.Getenv("REDIS_PASSWORD")
+	redisDB, err := getenvInt("REDIS_DB", "0")
+	if err != nil {
+		return runConfig{}, err
+	}
+	redisTimeout, err := getenvDuration("REDIS_TIMEOUT", "100ms")
+	if err != nil {
+		return runConfig{}, err
+	}
+	redisKeyPrefix := getenvDefault("REDIS_KEY_PREFIX", "mcpgate:rl:")
+
 	timeouts, err := loadServerTimeouts()
 	if err != nil {
 		return runConfig{}, err
@@ -602,6 +671,12 @@ func loadConfig() (runConfig, error) {
 		rateLimitBurst:      rateLimitBurst,
 		maxConcurrentPerIP:  maxConcurrentPerIP,
 		maxTotalConnections: maxTotalConnections,
+		redisAddr:           redisAddr,
+		redisUsername:       redisUsername,
+		redisPassword:       redisPassword,
+		redisDB:             redisDB,
+		redisTimeout:        redisTimeout,
+		redisKeyPrefix:      redisKeyPrefix,
 		upstreamTimeout:     timeouts.upstream,
 		sseIdleTimeout:      timeouts.sseIdle,
 		readTimeout:         timeouts.read,

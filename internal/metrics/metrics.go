@@ -95,6 +95,32 @@ var (
 		Help: "Total requests rejected by rate limiting.",
 	})
 
+	// RateLimitBackend is set to 1 for the active backend label. When REDIS_URL
+	// is set the "redis" series is 1 and the "memory" series is 0; otherwise the
+	// inverse. Dashboard alerts can pivot on this gauge to distinguish per-replica
+	// fragmentation (memory) from coordinated enforcement (redis).
+	RateLimitBackend = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "mcpgate_ratelimit_backend_info",
+		Help: "Active rate-limit backend (1 = active). Labels: memory, redis.",
+	}, []string{"backend"})
+
+	// RateLimitRedisErrorsTotal counts Redis-side rate-limit failures. kind is
+	// {timeout, unavailable, other}. Non-zero values mean fail-open paths fired
+	// — alert on a sustained rate.
+	RateLimitRedisErrorsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "mcpgate_ratelimit_redis_errors_total",
+		Help: "Redis rate-limit operations that failed and triggered fail-open, by error kind.",
+	}, []string{"kind"})
+
+	// RateLimitRedisLatency observes the wall-clock duration of the Redis
+	// rate-limit Allow call. p99 above ~10ms on a healthy local Redis indicates
+	// a network or load problem.
+	RateLimitRedisLatency = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "mcpgate_ratelimit_redis_latency_seconds",
+		Help:    "Latency of Redis rate-limit Allow calls in seconds.",
+		Buckets: []float64{.0005, .001, .002, .005, .01, .025, .05, .1, .25},
+	})
+
 	ActiveConnections = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "mcpgate_active_connections",
 		Help: "Number of active TCP connections.",

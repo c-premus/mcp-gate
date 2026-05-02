@@ -60,6 +60,10 @@ See the **[Setup Guide](https://github.com/c-premus/mcp-gate/blob/main/docs/setu
 
 All configuration is via environment variables. See the [Setup Guide](https://github.com/c-premus/mcp-gate/blob/main/docs/setup.md#step-3-configure-and-run-mcp-gate) for the full list.
 
+### Horizontal scaling
+
+mcp-gate validates JWTs statelessly and is safe to run as multiple replicas behind a load balancer. The per-IP rate limiter defaults to in-memory state, which means the configured RPS holds *per replica*. Set `REDIS_ADDR=host:port` to back the limiter with Redis so the configured RPS is enforced globally across replicas. `REDIS_USERNAME`, `REDIS_PASSWORD`, and `REDIS_DB` are read separately so Vault can inject a password as a single secret. Redis errors fail open (the request passes through and a counter is incremented) so a Redis hiccup never blackholes user traffic.
+
 ## License
 
 MIT
