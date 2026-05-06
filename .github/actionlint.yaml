@@ -1,0 +1,9 @@
+# actionlint configuration.
+#
+# Whitelists Forgejo-side runner labels that actionlint doesn't know about.
+# Without this, every workflow using a self-hosted Forgejo runner fails the
+# `runner-label` check, drowning out real findings.
+self-hosted-runner:
+  labels:
+    - docker     # Forgejo runner with Docker-in-Docker available
+    - deployer   # Forgejo runner with Docker socket + host fs mounts
