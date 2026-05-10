@@ -1,6 +1,6 @@
 module github.com/c-premus/mcp-gate
 
-go 1.26.2
+go 1.26.3
 
 require (
 	github.com/MicahParks/jwkset v0.11.0
