@@ -8,6 +8,13 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.16.3] - 2026-05-10
+
+### Fixes
+
+- fix(deps): bump golang.org/x/net to v0.53.0 (GO-2026-4918)
+- fix(ci): release uses dind socket instead of plaintext tcp://:2375
+
 ## [0.16.2] - 2026-05-10
 
 ### Fixes
@@ -18,6 +25,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 ### Maintenance
 
+- chore(changelog): update for v0.16.2
 - chore(devcontainer): use bridge networking with named redis service
 - chore(deps): update catthehacker/ubuntu:act-22.04 docker digest to d1d8440
 
@@ -381,6 +389,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.16.3]: https://github.com/c-premus/mcp-gate/compare/v0.16.2...v0.16.3
 [0.16.2]: https://github.com/c-premus/mcp-gate/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/c-premus/mcp-gate/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/c-premus/mcp-gate/compare/v0.15.1...v0.16.0
