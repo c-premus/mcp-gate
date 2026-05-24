@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strings"
 )
 
@@ -84,8 +85,8 @@ func Extract(r *http.Request, trustedProxies []netip.Prefix) string {
 			if xffs := r.Header.Values("X-Forwarded-For"); len(xffs) > 0 {
 				xff := strings.Join(xffs, ",")
 				ips := strings.Split(xff, ",")
-				for i := len(ips) - 1; i >= 0; i-- {
-					candidate := strings.TrimSpace(ips[i])
+				for _, ip := range slices.Backward(ips) {
+					candidate := strings.TrimSpace(ip)
 					parsed, _ := netip.ParseAddr(candidate)
 					if !parsed.IsValid() {
 						continue
