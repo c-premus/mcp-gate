@@ -5,7 +5,7 @@ go 1.26.3
 require (
 	github.com/MicahParks/jwkset v0.11.0
 	github.com/MicahParks/keyfunc/v3 v3.8.0
-	github.com/alicebob/miniredis/v2 v2.37.0
+	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/go-redis/redis_rate/v10 v10.0.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/prometheus/client_golang v1.23.2
