@@ -8,12 +8,47 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.16.4] - 2026-05-24
+
+### Fixes
+
+- fix(deps): update module github.com/alicebob/miniredis/v2 to v2.38.0
+
+### Maintenance
+
+- chore(deps): update dependency tsx to v4.22.3
+- chore(deps): update module golang.org/x/net to v0.55.0 [security]
+- chore(deps): update docker/setup-buildx-action action to v4.1.0
+- chore(deps): update docker/metadata-action action to v6.1.0
+- chore(deps): update docker/login-action action to v4.2.0
+- chore(deps): update docker/build-push-action action to v7.2.0
+- chore(deps): update dependency golangci/golangci-lint to v2.12.2
+- chore(deps): update golangci/golangci-lint-action action to v9.2.1
+- chore(deps): update dependency @types/node to v24.12.4
+- chore(deps): update mcr.microsoft.com/devcontainers/go:dev-1.26 docker digest to 841ac3b
+- chore(deps): update https://github.com/golangci/golangci-lint-action digest to 82606bf
+- chore(deps): update ghcr.io/renovatebot/renovate:43 docker digest to 47421f2
+- chore(deps): update docker/setup-buildx-action digest to d7f5e7f
+- chore(deps): update docker/login-action digest to 650006c
+- chore(deps): update docker/build-push-action digest to f9f3042
+- chore(deps): update module golang.org/x/crypto to v0.52.0 [security]
+- chore(deps): update catthehacker/ubuntu:act-22.04 docker digest to 19ee450
+- chore(deps): update docker dependencies
+- chore(deps): update catthehacker/ubuntu:act-22.04 docker digest to 1f7ab65
+- chore(deps): update docker dependencies
+- chore(deps): update ghcr.io/renovatebot/renovate:43 docker digest to 6c6c29d
+- chore(deps): update dependency @types/node to v24.12.3
+
 ## [0.16.3] - 2026-05-10
 
 ### Fixes
 
 - fix(deps): bump golang.org/x/net to v0.53.0 (GO-2026-4918)
 - fix(ci): release uses dind socket instead of plaintext tcp://:2375
+
+### Maintenance
+
+- chore(changelog): update for v0.16.3
 
 ## [0.16.2] - 2026-05-10
 
@@ -389,6 +424,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.16.4]: https://github.com/c-premus/mcp-gate/compare/v0.16.3...v0.16.4
 [0.16.3]: https://github.com/c-premus/mcp-gate/compare/v0.16.2...v0.16.3
 [0.16.2]: https://github.com/c-premus/mcp-gate/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/c-premus/mcp-gate/compare/v0.16.0...v0.16.1
