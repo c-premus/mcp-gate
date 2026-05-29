@@ -8,6 +8,21 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.16.5] - 2026-05-29
+
+### Fixes
+
+- fix(otel): bump semconv to v1.41.0 to match OTEL SDK v1.44.0
+- fix(deps): update go dependencies
+
+### Maintenance
+
+- chore(deps): update snok/container-retention-policy action to v3.1.0
+- chore(deps): update ghcr.io/renovatebot/renovate:43 docker digest to 1f74e57
+- chore(deps): update docker dependencies
+- chore(deps): update ghcr.io/renovatebot/renovate:43 docker digest to 32a0a9c
+- chore(deps): update cpremus/mcp-gate:latest docker digest to ce4305d
+
 ## [0.16.4] - 2026-05-24
 
 ### Fixes
@@ -16,6 +31,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 ### Maintenance
 
+- chore(changelog): update for v0.16.4
 - chore(deps): update dependency tsx to v4.22.3
 - chore(deps): update module golang.org/x/net to v0.55.0 [security]
 - chore(deps): update docker/setup-buildx-action action to v4.1.0
@@ -424,6 +440,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.16.5]: https://github.com/c-premus/mcp-gate/compare/v0.16.4...v0.16.5
 [0.16.4]: https://github.com/c-premus/mcp-gate/compare/v0.16.3...v0.16.4
 [0.16.3]: https://github.com/c-premus/mcp-gate/compare/v0.16.2...v0.16.3
 [0.16.2]: https://github.com/c-premus/mcp-gate/compare/v0.16.1...v0.16.2
