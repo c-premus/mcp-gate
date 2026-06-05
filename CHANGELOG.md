@@ -8,6 +8,24 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.16.6] - 2026-06-05
+
+### Fixes
+
+- fix(deps): bump Go 1.26.3 to 1.26.4 for 3 stdlib CVEs
+
+### Maintenance
+
+- chore(deps): update dependency tsx to v4.22.4
+- chore(deps): update actions/checkout digest to df4cb1c
+- chore(deps): update catthehacker/ubuntu:act-22.04 docker digest to 16ef580
+- chore(deps): update ghcr.io/renovatebot/renovate:43 docker digest to 7ddbf89
+- chore(deps): update mcr.microsoft.com/devcontainers/go:dev-1.26 docker digest to 5d48331
+- chore(deps): update ghcr.io/renovatebot/renovate:43 docker digest to 75ece3e
+- chore(deps): update ghcr.io/renovatebot/renovate:43 docker digest to 335dc7b
+- chore(deps): update ghcr.io/renovatebot/renovate:43 docker digest to fb9b7b9
+- chore(deps): update catthehacker/ubuntu:act-22.04 docker digest to b75d897
+
 ## [0.16.5] - 2026-05-29
 
 ### Fixes
@@ -17,6 +35,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 ### Maintenance
 
+- chore(changelog): update for v0.16.5
 - chore(deps): update snok/container-retention-policy action to v3.1.0
 - chore(deps): update ghcr.io/renovatebot/renovate:43 docker digest to 1f74e57
 - chore(deps): update docker dependencies
@@ -440,6 +459,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.16.6]: https://github.com/c-premus/mcp-gate/compare/v0.16.5...v0.16.6
 [0.16.5]: https://github.com/c-premus/mcp-gate/compare/v0.16.4...v0.16.5
 [0.16.4]: https://github.com/c-premus/mcp-gate/compare/v0.16.3...v0.16.4
 [0.16.3]: https://github.com/c-premus/mcp-gate/compare/v0.16.2...v0.16.3
