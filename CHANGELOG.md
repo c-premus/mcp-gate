@@ -14,6 +14,10 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - fix(deps): update go dependencies to v9.20.1
 
+### Maintenance
+
+- chore(changelog): update for v0.16.12
+
 ## [0.16.11] - 2026-06-14
 
 ### Maintenance
@@ -503,6 +507,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.16.13]: https://github.com/c-premus/mcp-gate/compare/v0.16.12...v0.16.13
 [0.16.12]: https://github.com/c-premus/mcp-gate/compare/v0.16.11...v0.16.12
 [0.16.11]: https://github.com/c-premus/mcp-gate/compare/v0.16.10...v0.16.11
 [0.16.10]: https://github.com/c-premus/mcp-gate/compare/v0.16.9...v0.16.10
