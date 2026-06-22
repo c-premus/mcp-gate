@@ -8,6 +8,21 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.16.14] - 2026-06-22
+
+### Maintenance
+
+- chore(deps): update ghcr.io/renovatebot/renovate:43 docker digest to 14cc37c
+- chore(deps): update catthehacker/ubuntu:act-22.04 docker digest to 1bbac26
+- chore(deps): update docker dependencies
+- chore(deps): lock file maintenance
+
+## [0.16.13] - 2026-06-19
+
+### Maintenance
+
+- chore(changelog): update for v0.16.13
+
 ## [0.16.12] - 2026-06-15
 
 ### Fixes
@@ -507,6 +522,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.16.14]: https://github.com/c-premus/mcp-gate/compare/v0.16.13...v0.16.14
 [0.16.13]: https://github.com/c-premus/mcp-gate/compare/v0.16.12...v0.16.13
 [0.16.12]: https://github.com/c-premus/mcp-gate/compare/v0.16.11...v0.16.12
 [0.16.11]: https://github.com/c-premus/mcp-gate/compare/v0.16.10...v0.16.11
