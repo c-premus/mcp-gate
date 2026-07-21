@@ -8,10 +8,18 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.16.29] - 2026-07-21
+
+### Maintenance
+
+- chore(deps): update actions/setup-go action to v7
+- chore(deps): update actions/setup-node action to v7
+
 ## [0.16.28] - 2026-07-17
 
 ### Maintenance
 
+- chore(changelog): update for v0.16.28
 - chore(deps): update actions/setup-node action to v6.5.0 (#170)
 
 ## [0.16.27] - 2026-07-16
@@ -639,6 +647,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.16.29]: https://github.com/c-premus/mcp-gate/compare/v0.16.28...v0.16.29
 [0.16.28]: https://github.com/c-premus/mcp-gate/compare/v0.16.27...v0.16.28
 [0.16.27]: https://github.com/c-premus/mcp-gate/compare/v0.16.26...v0.16.27
 [0.16.26]: https://github.com/c-premus/mcp-gate/compare/v0.16.25...v0.16.26
