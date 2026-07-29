@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -1373,5 +1374,50 @@ func TestLoadConfig_RedisDBNonInteger(t *testing.T) {
 
 	if _, err := loadConfig(); err == nil {
 		t.Fatal("expected error for non-integer REDIS_DB")
+	}
+}
+
+// TestWarnOfflineAccess covers the MCP 2026-07-28 SHOULD NOT that a protected
+// resource must not advertise offline_access. The check is advisory, so the
+// only observable behavior is the log line — which makes it exactly the kind of
+// thing that rots silently without a test.
+//
+// Not parallel: it swaps the default slog handler.
+func TestWarnOfflineAccess(t *testing.T) {
+	tests := []struct {
+		name     string
+		scopes   []string
+		wantWarn bool
+	}{
+		{"typical scopes", []string{"openid", "profile"}, false},
+		{"empty", nil, false},
+		{"offline_access present", []string{"openid", "offline_access"}, true},
+		{"offline_access alone", []string{"offline_access"}, true},
+		{
+			// Substring matches must not trigger: these are distinct scopes.
+			name:     "similar scope names do not match",
+			scopes:   []string{"offline", "offline_access_granted"},
+			wantWarn: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			prev := slog.Default()
+			slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+			t.Cleanup(func() { slog.SetDefault(prev) })
+
+			warnOfflineAccess("SCOPES_SUPPORTED", tt.scopes)
+
+			got := strings.Contains(buf.String(), "offline_access advertised")
+			if got != tt.wantWarn {
+				t.Errorf("warned = %v, want %v\n  scopes: %v\n  log: %s",
+					got, tt.wantWarn, tt.scopes, buf.String())
+			}
+			if tt.wantWarn && !strings.Contains(buf.String(), "SCOPES_SUPPORTED") {
+				t.Errorf("warning does not name the env var to edit: %s", buf.String())
+			}
+		})
 	}
 }

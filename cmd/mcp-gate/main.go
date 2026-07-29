@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -213,7 +214,7 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	// MCP 2025-11-25 §"Token Handling" requires the RS to validate that tokens
+	// MCP 2026-07-28 §"Token Handling" requires the RS to validate that tokens
 	// were issued specifically for it per RFC 8707 §2, whose canonical form
 	// is the resource's URI. Many OIDC providers (Authentik is one) emit
 	// aud=<client_id> instead, which is substantively correct but not literally
@@ -224,10 +225,22 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *
 		slog.Warn("audience not bound to canonical resource URI",
 			"expected_audience", cfg.expectedAudience,
 			"resource_uri", cfg.resourceURI,
-			"reference", "RFC 8707 §2 / MCP 2025-11-25 Token Handling",
+			"reference", "RFC 8707 §2 / MCP 2026-07-28 Token Handling",
 			"guidance", "prefer configuring the authorization server to emit aud=<RESOURCE_URI>",
 		)
 	}
+
+	// MCP 2026-07-28 §"Refresh Tokens": protected resources SHOULD NOT advertise
+	// offline_access, in either scopes_supported or a WWW-Authenticate scope
+	// challenge, because a refresh token is a client concern and never a
+	// requirement of the resource. A client that follows the scope selection
+	// strategy — request everything in scopes_supported when no scope challenge
+	// is present — would otherwise be pushed into asking for offline_access it
+	// does not need. Advisory only: an operator who deliberately wants this can
+	// ignore the warning, and failing startup over a SHOULD NOT would be
+	// disproportionate.
+	warnOfflineAccess("SCOPES_SUPPORTED", cfg.scopesSupported)
+	warnOfflineAccess("REQUIRED_SCOPES", cfg.requiredScopes)
 
 	// Record build info metric
 	metrics.Info.WithLabelValues(version).Set(1)
@@ -327,7 +340,7 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *
 	if err != nil {
 		return nil, fmt.Errorf("metadata handler: %w", err)
 	}
-	mux.HandleFunc("GET /.well-known/oauth-protected-resource", metadataHandler)
+	mux.HandleFunc("GET "+metadata.WellKnownPath, metadataHandler)
 
 	// /healthz is reachable without authentication (Docker HEALTHCHECK, Traefik
 	// probes), so the response bodies are deliberately generic — the status
@@ -774,6 +787,20 @@ func loadServerTimeouts() (serverTimeouts, error) {
 		return serverTimeouts{}, err
 	}
 	return serverTimeouts{upstream: upstream, sseIdle: sseIdle, read: read, idle: idle}, nil
+}
+
+// warnOfflineAccess logs when a scope list advertises offline_access, which the
+// MCP authorization spec tells protected resources not to do. envVar names the
+// setting so the operator knows which one to edit.
+func warnOfflineAccess(envVar string, scopes []string) {
+	if !slices.Contains(scopes, "offline_access") {
+		return
+	}
+	slog.Warn("offline_access advertised by the protected resource",
+		"env_var", envVar,
+		"reference", "MCP 2026-07-28 Refresh Tokens (SHOULD NOT)",
+		"guidance", "a refresh token is a client concern; remove offline_access from this list",
+	)
 }
 
 func splitCSV(s string) []string {
