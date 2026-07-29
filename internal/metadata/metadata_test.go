@@ -131,3 +131,82 @@ func TestHandler_DELETE_Returns405(t *testing.T) {
 		t.Fatalf("expected 405, got %d", w.Code)
 	}
 }
+
+func TestURLFor(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		resourceURI string
+		want        string
+	}{
+		{
+			name:        "root-mounted resource",
+			resourceURI: "https://mcp.example.com",
+			want:        "https://mcp.example.com/.well-known/oauth-protected-resource",
+		},
+		{
+			// A trailing slash must not produce a doubled separator.
+			name:        "root-mounted with trailing slash",
+			resourceURI: "https://mcp.example.com/",
+			want:        "https://mcp.example.com/.well-known/oauth-protected-resource",
+		},
+		{
+			// RFC 9728 §3.1 inserts the well-known segment between the
+			// authority and the resource path — it does NOT append to it.
+			name:        "path-mounted resource",
+			resourceURI: "https://example.com/mcp",
+			want:        "https://example.com/.well-known/oauth-protected-resource/mcp",
+		},
+		{
+			name:        "nested path-mounted resource",
+			resourceURI: "https://example.com/public/mcp",
+			want:        "https://example.com/.well-known/oauth-protected-resource/public/mcp",
+		},
+		{
+			name:        "non-default port is preserved",
+			resourceURI: "https://mcp.example.com:8443",
+			want:        "https://mcp.example.com:8443/.well-known/oauth-protected-resource",
+		},
+		{
+			// Unreachable in practice (RESOURCE_URI is validated at startup),
+			// but URLFor must stay total rather than panic or return "".
+			name:        "unparseable input falls back to concatenation",
+			resourceURI: "not-a-url",
+			want:        "not-a-url/.well-known/oauth-protected-resource",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := metadata.URLFor(tt.resourceURI); got != tt.want {
+				t.Errorf("URLFor(%q) = %q, want %q", tt.resourceURI, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPathSuffix(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		resourceURI string
+		want        string
+	}{
+		{"root", "https://mcp.example.com", ""},
+		{"root with trailing slash", "https://mcp.example.com/", ""},
+		{"single segment", "https://example.com/mcp", "/mcp"},
+		{"single segment with trailing slash", "https://example.com/mcp/", "/mcp"},
+		{"nested", "https://example.com/public/mcp", "/public/mcp"},
+		{"opaque input", "not-a-url", "not-a-url"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := metadata.PathSuffix(tt.resourceURI); got != tt.want {
+				t.Errorf("PathSuffix(%q) = %q, want %q", tt.resourceURI, got, tt.want)
+			}
+		})
+	}
+}

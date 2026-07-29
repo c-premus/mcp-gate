@@ -1315,3 +1315,88 @@ func TestJWKSRefreshErrorIncrementsCounter(t *testing.T) {
 		5*time.Second,
 		"JWKSRefreshErrorsTotal did not increment after JWKS endpoint began returning 500")
 }
+
+// TestChallengeShape pins the structure of all three WWW-Authenticate
+// challenges in one place. The individual challenge tests elsewhere in this
+// file deliberately assert only substrings or response bodies, so before this
+// test a format change could silently drop resource_metadata — the parameter
+// the MCP authorization flow opens with — and nothing would fail.
+//
+// It asserts parameter presence, not the full challenge string. An exact-match
+// assertion would have to be updated on every wording change and would provoke
+// exactly the "just update the expected string" reflex that makes a regression
+// test worthless.
+func TestChallengeShape(t *testing.T) {
+	t.Parallel()
+	ts := newTestSetup(t)
+	defer ts.Close()
+
+	mw := newMiddleware(t, ts, []string{"openid", "admin"})
+
+	// A token that is valid but lacks the "admin" scope, to reach the 403 path.
+	insufficientClaims := validClaims()
+	insufficientClaims.Scope = auth.Scopes{"openid"}
+
+	tests := []struct {
+		name       string
+		authHeader string
+		wantStatus int
+		wantParams []string
+		wantScope  string
+	}{
+		{
+			name:       "no token",
+			authHeader: "",
+			wantStatus: http.StatusUnauthorized,
+			// RFC 6750 §3.1: no error code when the request lacks credentials.
+			wantParams: []string{`realm="`, `resource_metadata="`},
+			// Advertises what to request, since the client has nothing yet.
+			wantScope: `scope="openid profile"`,
+		},
+		{
+			name:       "invalid token",
+			authHeader: "Bearer not.a.jwt",
+			wantStatus: http.StatusUnauthorized,
+			wantParams: []string{`realm="`, `error="invalid_token"`, `resource_metadata="`},
+		},
+		{
+			name:       "insufficient scope",
+			authHeader: "Bearer " + signToken(t, ts.privKey, insufficientClaims),
+			wantStatus: http.StatusForbidden,
+			wantParams: []string{`realm="`, `error="insufficient_scope"`, `resource_metadata="`},
+			// Names what is missing, so the client can step up.
+			wantScope: `scope="openid admin"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			w := doRequest(t, mw, tt.authHeader)
+
+			if w.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", w.Code, tt.wantStatus)
+			}
+
+			challenge := w.Header().Get("WWW-Authenticate")
+			if !strings.HasPrefix(challenge, "Bearer ") {
+				t.Fatalf("challenge = %q, want a Bearer challenge", challenge)
+			}
+			for _, param := range tt.wantParams {
+				if !strings.Contains(challenge, param) {
+					t.Errorf("challenge missing %s\n  got: %s", param, challenge)
+				}
+			}
+			if tt.wantScope != "" && !strings.Contains(challenge, tt.wantScope) {
+				t.Errorf("challenge missing %s\n  got: %s", tt.wantScope, challenge)
+			}
+
+			// resource_metadata must be the RFC 9728 well-known URL derived
+			// from ResourceURI, not the bare resource URI.
+			wantMetadata := `resource_metadata="` + testResource + `/.well-known/oauth-protected-resource"`
+			if !strings.Contains(challenge, wantMetadata) {
+				t.Errorf("challenge resource_metadata wrong\n  want substring: %s\n  got: %s", wantMetadata, challenge)
+			}
+		})
+	}
+}

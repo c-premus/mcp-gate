@@ -19,6 +19,7 @@ import (
 
 	"github.com/MicahParks/jwkset"
 	"github.com/MicahParks/keyfunc/v3"
+	"github.com/c-premus/mcp-gate/internal/metadata"
 	"github.com/c-premus/mcp-gate/internal/metrics"
 	"github.com/c-premus/mcp-gate/internal/realip"
 	"github.com/golang-jwt/jwt/v5"
@@ -83,6 +84,14 @@ type Middleware struct {
 	storage jwkset.Storage
 	cfg     Config
 	parser  *jwt.Parser
+
+	// metadataURL is the resource_metadata value emitted in every
+	// WWW-Authenticate challenge. Derived from cfg.ResourceURI once at
+	// construction so the three challenge builders stay identical in shape and
+	// cannot drift apart. Still passed through sanitizeQuotedString at emit
+	// time — sanitizing is the invariant, not a judgement about this value's
+	// provenance.
+	metadataURL string
 }
 
 // NewMiddleware creates a new auth middleware. It performs a blocking JWKS fetch
@@ -174,10 +183,11 @@ func NewMiddleware(cfg Config) (*Middleware, error) {
 	)
 
 	return &Middleware{
-		kf:      kf,
-		storage: client,
-		cfg:     cfg,
-		parser:  parser,
+		kf:          kf,
+		storage:     client,
+		cfg:         cfg,
+		parser:      parser,
+		metadataURL: metadata.URLFor(cfg.ResourceURI),
 	}, nil
 }
 
@@ -459,10 +469,10 @@ func sanitizeQuotedString(s string) string {
 // Per RFC 6750 §3.1, no error code when the request lacks authentication.
 func (m *Middleware) writeNoTokenError(w http.ResponseWriter) {
 	w.Header().Set("WWW-Authenticate", fmt.Sprintf(
-		`Bearer realm="%s", scope="%s", resource_metadata="%s/.well-known/oauth-protected-resource"`,
+		`Bearer realm="%s", scope="%s", resource_metadata="%s"`,
 		sanitizeQuotedString(m.cfg.Realm),
 		sanitizeQuotedString(m.cfg.ScopesSupported),
-		sanitizeQuotedString(m.cfg.ResourceURI),
+		sanitizeQuotedString(m.metadataURL),
 	))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
@@ -477,9 +487,9 @@ func (m *Middleware) writeNoTokenError(w http.ResponseWriter) {
 // to clients to prevent leaking internal details (key IDs, timing, etc.).
 func (m *Middleware) writeInvalidTokenError(w http.ResponseWriter) {
 	w.Header().Set("WWW-Authenticate", fmt.Sprintf(
-		`Bearer realm="%s", error="invalid_token", error_description="The access token is invalid or expired", resource_metadata="%s/.well-known/oauth-protected-resource"`,
+		`Bearer realm="%s", error="invalid_token", error_description="The access token is invalid or expired", resource_metadata="%s"`,
 		sanitizeQuotedString(m.cfg.Realm),
-		sanitizeQuotedString(m.cfg.ResourceURI),
+		sanitizeQuotedString(m.metadataURL),
 	))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
@@ -492,10 +502,10 @@ func (m *Middleware) writeInvalidTokenError(w http.ResponseWriter) {
 // writeInsufficientScopeError writes a 403 response for missing required scopes.
 func (m *Middleware) writeInsufficientScopeError(w http.ResponseWriter) {
 	w.Header().Set("WWW-Authenticate", fmt.Sprintf(
-		`Bearer realm="%s", error="insufficient_scope", scope="%s", error_description="Required scope not granted", resource_metadata="%s/.well-known/oauth-protected-resource"`,
+		`Bearer realm="%s", error="insufficient_scope", scope="%s", error_description="Required scope not granted", resource_metadata="%s"`,
 		sanitizeQuotedString(m.cfg.Realm),
 		sanitizeQuotedString(strings.Join(m.cfg.RequiredScopes, " ")),
-		sanitizeQuotedString(m.cfg.ResourceURI),
+		sanitizeQuotedString(m.metadataURL),
 	))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusForbidden)

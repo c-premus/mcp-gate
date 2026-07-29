@@ -9,7 +9,52 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 )
+
+// WellKnownPath is the RFC 9728 well-known URI path for Protected Resource
+// Metadata. It is the single source of truth for this string: the route
+// registration, the metrics route classifier, and the resource_metadata
+// parameter of every WWW-Authenticate challenge all derive from it.
+const WellKnownPath = "/.well-known/oauth-protected-resource"
+
+// URLFor returns the absolute URL of the Protected Resource Metadata document
+// for resourceURI.
+//
+// Per RFC 9728 §3.1 the well-known segment is inserted between the authority
+// and the resource's path, so a resource at https://example.com/mcp publishes
+// its metadata at https://example.com/.well-known/oauth-protected-resource/mcp
+// — not at https://example.com/mcp/.well-known/oauth-protected-resource. For a
+// root-mounted resource (mcp-gate's own deployment) both readings collapse to
+// the same URL.
+//
+// If resourceURI is not an absolute URL, URLFor falls back to appending the
+// well-known path. RESOURCE_URI is validated at startup, so the fallback is
+// unreachable in practice; it exists so the function is total.
+func URLFor(resourceURI string) string {
+	u, err := url.Parse(resourceURI)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return strings.TrimSuffix(resourceURI, "/") + WellKnownPath
+	}
+	return (&url.URL{
+		Scheme: u.Scheme,
+		Host:   u.Host,
+		Path:   WellKnownPath + PathSuffix(resourceURI),
+	}).String()
+}
+
+// PathSuffix returns the path component of resourceURI with any trailing slash
+// removed, or "" when the resource is mounted at the root. It is the segment
+// RFC 9728 §3.1 appends after WellKnownPath, and it is also what decides
+// whether a deployment needs a second, path-suffixed metadata route.
+func PathSuffix(resourceURI string) string {
+	u, err := url.Parse(resourceURI)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSuffix(u.Path, "/")
+}
 
 // ProtectedResourceMetadata represents the RFC 9728 Protected Resource Metadata response.
 // Defined inline to avoid heavy transitive dependencies from go-sdk/oauthex.
