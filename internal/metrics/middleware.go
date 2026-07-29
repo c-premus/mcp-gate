@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/c-premus/mcp-gate/internal/metadata"
 	"github.com/c-premus/mcp-gate/internal/realip"
 )
 
@@ -32,9 +33,12 @@ func truncate(s string, maxBytes int) string {
 }
 
 // RouteClassifier maps a request path to a bounded route label for metrics.
+//
+// This runs OUTSIDE the mux, so it must independently reproduce the mux's
+// routing decision or the route label lies about where a request went.
 func RouteClassifier(r *http.Request) string {
 	switch r.URL.Path {
-	case "/.well-known/oauth-protected-resource":
+	case metadata.WellKnownPath:
 		return "metadata"
 	case "/healthz":
 		return "healthz"
@@ -114,6 +118,23 @@ func Middleware(next http.Handler) http.Handler {
 		HTTPRequestsTotal.WithLabelValues(method, route, status).Inc()
 		HTTPRequestDuration.WithLabelValues(method, route, status).Observe(duration)
 
+		// MCP request-metadata headers are only meaningful on proxied traffic;
+		// /healthz and the metadata endpoint never carry them. Recording only
+		// on the proxy route keeps "absent" meaning "an MCP client that didn't
+		// send it" rather than being swamped by health probes.
+		//
+		// Read-only: see the rule in mcp.go. These values are observed, never
+		// acted on.
+		mcpMethod, mcpName := "", ""
+		if route == "proxy" {
+			mcpMethod = r.Header.Get(HeaderMCPMethod)
+			mcpName = r.Header.Get(HeaderMCPName)
+			MCPRequestsTotal.WithLabelValues(
+				mcpMethodLabel(mcpMethod),
+				mcpProtocolVersionLabel(r.Header.Get(HeaderMCPProtocolVersion)),
+			).Inc()
+		}
+
 		// Successful healthz probes fire every 30s from Docker + Traefik +
 		// Prometheus target checks; at info level that's ~thousands of lines
 		// per day of pure noise in Loki. Drop them to debug so operators only
@@ -122,13 +143,29 @@ func Middleware(next http.Handler) http.Handler {
 		if route == "healthz" && rec.statusCode == http.StatusOK {
 			logFn = slog.Debug
 		}
-		logFn("request",
+		args := []any{
 			"method", r.Method,
 			"path", truncate(r.URL.Path, maxLoggedFieldBytes),
 			"status", rec.statusCode,
 			"duration_ms", int(duration*1000),
 			"client_ip", realip.FromContext(r),
 			"user_agent", truncate(r.Header.Get("User-Agent"), maxLoggedFieldBytes),
-		)
+		}
+		// Only attach MCP fields when the client actually sent them, so log
+		// lines from non-MCP traffic don't carry empty keys.
+		if mcpMethod != "" {
+			args = append(args, "mcp_method", truncate(mcpMethod, maxLoggedFieldBytes))
+		}
+		if mcpName != "" {
+			// Logged raw and truncated — never Base64-decoded. See
+			// isBase64Sentinel for why. Unlike the metric label, mcp_name is
+			// unbounded (for resources/read it carries params.uri), which is
+			// exactly why it is a log field and not a label.
+			args = append(args,
+				"mcp_name", truncate(mcpName, maxLoggedFieldBytes),
+				"mcp_name_encoded", isBase64Sentinel(mcpName),
+			)
+		}
+		logFn("request", args...)
 	})
 }

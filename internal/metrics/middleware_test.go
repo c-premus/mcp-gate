@@ -1,6 +1,8 @@
 package metrics
 
 import (
+	"bytes"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -151,5 +153,147 @@ func TestMiddleware_TruncatesLongPathAndUserAgent(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+// TestMiddleware_RecordsMCPMetadata covers the 2026-07-28 request-metadata
+// headers: they are observed into a bounded metric and the request log, and
+// nowhere else. Not parallel — it reads package-global counters.
+func TestMiddleware_RecordsMCPMetadata(t *testing.T) {
+	handler := Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	t.Run("proxy route records method and version", func(t *testing.T) {
+		before := testutil.ToFloat64(MCPRequestsTotal.WithLabelValues("tools/call", "2026-07-28"))
+
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", http.NoBody)
+		req.Header.Set(HeaderMCPProtocolVersion, "2026-07-28")
+		req.Header.Set(HeaderMCPMethod, "tools/call")
+		req.Header.Set(HeaderMCPName, "list_datasources")
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+
+		if got := testutil.ToFloat64(MCPRequestsTotal.WithLabelValues("tools/call", "2026-07-28")) - before; got != 1 {
+			t.Errorf("counter delta = %v, want 1", got)
+		}
+	})
+
+	t.Run("unclamped values land in the bounded buckets", func(t *testing.T) {
+		before := testutil.ToFloat64(MCPRequestsTotal.WithLabelValues("other", "other"))
+
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", http.NoBody)
+		req.Header.Set(HeaderMCPProtocolVersion, "9999-99-99")
+		req.Header.Set(HeaderMCPMethod, "attacker/controlled/"+strings.Repeat("x", 500))
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+
+		if got := testutil.ToFloat64(MCPRequestsTotal.WithLabelValues("other", "other")) - before; got != 1 {
+			t.Errorf("counter delta = %v, want 1", got)
+		}
+	})
+
+	t.Run("a request without the headers is counted as absent", func(t *testing.T) {
+		before := testutil.ToFloat64(MCPRequestsTotal.WithLabelValues("absent", "absent"))
+
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", http.NoBody)
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+
+		if got := testutil.ToFloat64(MCPRequestsTotal.WithLabelValues("absent", "absent")) - before; got != 1 {
+			t.Errorf("counter delta = %v, want 1", got)
+		}
+	})
+
+	t.Run("non-proxy routes are not counted", func(t *testing.T) {
+		// Health probes fire every 30s from Docker, Traefik, and Prometheus.
+		// Counting them would swamp "absent" and destroy its meaning as a
+		// migration signal.
+		before := testutil.ToFloat64(MCPRequestsTotal.WithLabelValues("absent", "absent"))
+
+		for _, path := range []string{"/healthz", "/.well-known/oauth-protected-resource"} {
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, http.NoBody)
+			handler.ServeHTTP(httptest.NewRecorder(), req)
+		}
+
+		if got := testutil.ToFloat64(MCPRequestsTotal.WithLabelValues("absent", "absent")) - before; got != 0 {
+			t.Errorf("counter delta = %v, want 0 (health/metadata routes must not be counted)", got)
+		}
+	})
+}
+
+// TestMiddleware_LogsMCPFields asserts the request log carries Mcp-Method and
+// Mcp-Name, that an oversized name is truncated, and — the important one — that
+// a Base64-sentinel value is logged verbatim rather than decoded.
+//
+// Decoding would turn a client-controlled blob into arbitrary bytes in Loki:
+// log injection, size amplification, and PII the client deliberately encoded
+// away. The mcp_name_encoded flag exists so an operator knows the field is
+// opaque rather than assuming truncation ate it.
+//
+// Not parallel: it swaps the default slog handler.
+func TestMiddleware_LogsMCPFields(t *testing.T) {
+	handler := Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	tests := []struct {
+		name        string
+		mcpMethod   string
+		mcpName     string
+		wantPresent []string
+		wantAbsent  []string
+	}{
+		{
+			name:        "plain values are logged as-is",
+			mcpMethod:   "tools/call",
+			mcpName:     "list_datasources",
+			wantPresent: []string{`"mcp_method":"tools/call"`, `"mcp_name":"list_datasources"`, `"mcp_name_encoded":false`},
+		},
+		{
+			name:        "sentinel value is not decoded",
+			mcpMethod:   "tools/call",
+			mcpName:     "=?base64?SGVsbG8sIOS4lueVjA==?=",
+			wantPresent: []string{`=?base64?SGVsbG8sIOS4lueVjA==?=`, `"mcp_name_encoded":true`},
+			// "Hello, 世界" — the decoded payload must never appear.
+			wantAbsent: []string{"世界"},
+		},
+		{
+			name:        "oversized name is truncated",
+			mcpMethod:   "resources/read",
+			mcpName:     "file:///" + strings.Repeat("a", 2000),
+			wantPresent: []string{"…(truncated)"},
+		},
+		{
+			name:       "absent headers produce no empty keys",
+			wantAbsent: []string{"mcp_method", "mcp_name"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			prev := slog.Default()
+			slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+			t.Cleanup(func() { slog.SetDefault(prev) })
+
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", http.NoBody)
+			if tt.mcpMethod != "" {
+				req.Header.Set(HeaderMCPMethod, tt.mcpMethod)
+			}
+			if tt.mcpName != "" {
+				req.Header.Set(HeaderMCPName, tt.mcpName)
+			}
+			handler.ServeHTTP(httptest.NewRecorder(), req)
+
+			logged := buf.String()
+			for _, want := range tt.wantPresent {
+				if !strings.Contains(logged, want) {
+					t.Errorf("log missing %q\n  got: %s", want, logged)
+				}
+			}
+			for _, unwanted := range tt.wantAbsent {
+				if strings.Contains(logged, unwanted) {
+					t.Errorf("log unexpectedly contains %q\n  got: %s", unwanted, logged)
+				}
+			}
+		})
 	}
 }

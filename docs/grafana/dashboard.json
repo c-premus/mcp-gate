@@ -1169,6 +1169,133 @@
       "id": 0,
       "panels": [
         {
+          "type": "timeseries",
+          "transparent": false,
+          "repeatDirection": "h",
+          "title": "MCP Calls by Method",
+          "description": "Request rate per MCP method, from the Mcp-Method header. A sustained 'other' line means a method outside the 2026-07-28 core set is in use — an extension (e.g. tasks/*) or a client sending a method removed in this revision. Add it to mcpMethodLabel if it is legitimate.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": false,
+              "calcs": [
+                "mean",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 60
+          },
+          "targets": [
+            {
+              "expr": "sum by (mcp_method) (rate(mcpgate_mcp_requests_total{job=\"mcp-gate\"}[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "{{mcp_method}}"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "transparent": false,
+          "repeatDirection": "h",
+          "title": "MCP Protocol Version Mix",
+          "description": "Request rate per protocol revision, from the MCP-Protocol-Version header. 'absent' is every client predating 2025-06-18 (when the header was introduced) plus any non-MCP traffic on the proxy route; watching it fall is how you know clients have migrated. mcp-gate itself is version-agnostic and never rejects on this value.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 60
+          },
+          "targets": [
+            {
+              "expr": "sum by (protocol_version) (rate(mcpgate_mcp_requests_total{job=\"mcp-gate\"}[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "{{protocol_version}}"
+            }
+          ]
+        },
+        {
+          "type": "piechart",
+          "transparent": false,
+          "repeatDirection": "h",
+          "title": "MCP Method Distribution",
+          "description": "Share of MCP calls by method over the selected time range",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 68
+          },
+          "targets": [
+            {
+              "expr": "sum by (mcp_method) (increase(mcpgate_mcp_requests_total{job=\"mcp-gate\"}[$__range]))",
+              "refId": "A",
+              "legendFormat": "{{mcp_method}}",
+              "instant": true,
+              "range": false
+            }
+          ]
+        }
+      ],
+      "title": "MCP Protocol",
+      "gridPos": {
+        "x": 0,
+        "y": 59,
+        "h": 1,
+        "w": 24
+      }
+    },
+    {
+      "type": "row",
+      "collapsed": true,
+      "id": 0,
+      "panels": [
+        {
           "type": "stat",
           "transparent": false,
           "repeatDirection": "h",
@@ -1219,7 +1346,7 @@
             "h": 5,
             "w": 6,
             "x": 0,
-            "y": 60
+            "y": 77
           },
           "targets": [
             {
@@ -1281,7 +1408,7 @@
             "h": 5,
             "w": 6,
             "x": 6,
-            "y": 60
+            "y": 77
           },
           "targets": [
             {
@@ -1325,7 +1452,7 @@
             "h": 5,
             "w": 6,
             "x": 12,
-            "y": 60
+            "y": 77
           },
           "targets": [
             {
@@ -1387,7 +1514,7 @@
             "h": 5,
             "w": 6,
             "x": 18,
-            "y": 60
+            "y": 77
           },
           "targets": [
             {
@@ -1423,7 +1550,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 65
+            "y": 82
           },
           "targets": [
             {
@@ -1465,7 +1592,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 65
+            "y": 82
           },
           "targets": [
             {
@@ -1489,7 +1616,7 @@
       "title": "Runtime",
       "gridPos": {
         "x": 0,
-        "y": 59,
+        "y": 76,
         "h": 1,
         "w": 24
       }
@@ -1513,7 +1640,7 @@
             "h": 12,
             "w": 24,
             "x": 0,
-            "y": 74
+            "y": 91
           },
           "targets": [
             {
@@ -1529,7 +1656,7 @@
       "title": "Trace Explorer",
       "gridPos": {
         "x": 0,
-        "y": 73,
+        "y": 90,
         "h": 1,
         "w": 24
       }
@@ -1542,7 +1669,7 @@
       "title": "Logs",
       "gridPos": {
         "x": 0,
-        "y": 86,
+        "y": 103,
         "h": 1,
         "w": 24
       }
@@ -1579,7 +1706,7 @@
         "h": 5,
         "w": 24,
         "x": 0,
-        "y": 87
+        "y": 104
       },
       "targets": [
         {
@@ -1614,7 +1741,7 @@
         "h": 16,
         "w": 24,
         "x": 0,
-        "y": 92
+        "y": 109
       },
       "targets": [
         {

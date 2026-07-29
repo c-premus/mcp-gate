@@ -8,6 +8,7 @@ import { overviewPanels } from "./panels/overview";
 import { authPanels } from "./panels/auth";
 import { proxyPanels } from "./panels/proxy";
 import { jwksPanels } from "./panels/jwks";
+import { mcpRow } from "./panels/mcp";
 import { runtimeRow } from "./panels/runtime";
 import { tracesRow } from "./panels/traces";
 import { logsPanels } from "./panels/logs";
@@ -57,6 +58,7 @@ export function buildDashboard(): DashboardBuilder {
 
   // Drill-down rows (collapsed by default — operators open these deliberately)
   builder = builder
+    .withRow(mcpRow())
     .withRow(runtimeRow())
     .withRow(tracesRow());
 
