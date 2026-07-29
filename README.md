@@ -10,7 +10,7 @@ OAuth 2.1 reverse proxy for MCP servers. Implements [RFC 9728 Protected Resource
 
 ## What it does
 
-`mcp-gate` sits in front of any MCP server and adds the [MCP Authorization specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization) (2025-11-25) endpoints required by Claude.ai custom connectors:
+`mcp-gate` sits in front of any MCP server and adds the [MCP Authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization) (2026-07-28) endpoints required by Claude.ai custom connectors:
 
 1. **`/.well-known/oauth-protected-resource`** — Serves RFC 9728 metadata pointing clients to the authorization server
 2. **`/healthz`** — Health check for container orchestration
