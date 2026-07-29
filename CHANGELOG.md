@@ -8,6 +8,22 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.17.0] - 2026-07-29
+
+### Features
+
+- feat(origin): add opt-in Origin validation, disabled by default
+- feat(metadata): serve the RFC 9728 path-inserted well-known URI
+- feat(auth): add scope to the invalid_token challenge
+- feat(proxy): set X-Accel-Buffering: no on SSE responses
+- feat(config): warn when the resource advertises offline_access
+- feat(metrics): record MCP method and protocol version
+
+### Fixes
+
+- fix(proxy): return 413 for over-limit request bodies
+- fix(metadata): derive resource_metadata via RFC 9728 path insertion
+
 ## [0.16.32] - 2026-07-28
 
 ### Fixes
@@ -16,6 +32,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 ### Maintenance
 
+- chore(changelog): update for v0.16.32
 - chore(deps): update docker/login-action action to v4.5.1 (#180)
 - chore(deps): update docker/login-action action to v4.5.0 (#178)
 
@@ -679,6 +696,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.17.0]: https://github.com/c-premus/mcp-gate/compare/v0.16.32...v0.17.0
 [0.16.32]: https://github.com/c-premus/mcp-gate/compare/v0.16.31...v0.16.32
 [0.16.31]: https://github.com/c-premus/mcp-gate/compare/v0.16.30...v0.16.31
 [0.16.30]: https://github.com/c-premus/mcp-gate/compare/v0.16.29...v0.16.30
