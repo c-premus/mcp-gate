@@ -196,15 +196,41 @@ func New(upstreamURL *url.URL, tc TransportConfig) *httputil.ReverseProxy {
 		},
 		FlushInterval: -1, // Flush immediately for SSE/streamable-http
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			if start, ok := r.Context().Value(contextKey{}).(time.Time); ok {
+				metrics.ProxyRequestDuration.Observe(time.Since(start).Seconds())
+			}
+
+			// An over-limit request body reaches us as a read error, because
+			// http.MaxBytesReader is installed by the caller but only the
+			// ReverseProxy actually reads the body. Reporting that as
+			// "upstream unavailable" is wrong twice over: it blames a healthy
+			// upstream for the client's request, and it inflates the 5xx ratio
+			// the deploy alert watches. MCP 2026-07-28 also asks intermediaries
+			// to "return an appropriate HTTP error status for validation
+			// failures".
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				slog.Warn("request body exceeds limit",
+					"method", r.Method,
+					"path", r.URL.Path,
+					"limit_bytes", maxBytesErr.Limit,
+				)
+				metrics.ProxyRequestsTotal.WithLabelValues("413").Inc()
+
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusRequestEntityTooLarge)
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"error":             "payload_too_large",
+					"error_description": "The request body exceeds the maximum allowed size",
+				})
+				return
+			}
+
 			slog.Error("upstream proxy error",
 				"method", r.Method,
 				"path", r.URL.Path,
 				"error", err,
 			)
-
-			if start, ok := r.Context().Value(contextKey{}).(time.Time); ok {
-				metrics.ProxyRequestDuration.Observe(time.Since(start).Seconds())
-			}
 			metrics.ProxyRequestsTotal.WithLabelValues("502").Inc()
 
 			w.Header().Set("Content-Type", "application/json")

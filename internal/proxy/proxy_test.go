@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -981,4 +982,83 @@ func TestSSEResponseSetsAccelBuffering(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestOversizedBodyReturns413 covers the request-size limit reaching the client
+// as a client error rather than an upstream one.
+//
+// The limit is installed by the caller (main.go wraps the body in
+// http.MaxBytesReader), but nothing in the handler reads the body — the
+// ReverseProxy does, so the read failure surfaces in ErrorHandler. Before this,
+// every over-limit request was reported as "the upstream service is
+// unavailable": wrong about a healthy upstream, and a false contributor to the
+// 5xx-ratio alert.
+func TestOversizedBodyReturns413(t *testing.T) {
+	const limit = 64
+
+	// Note what this test does NOT claim: that upstream is shielded from the
+	// request. httputil.ReverseProxy forwards the headers and then streams the
+	// body, so the upstream connection is already open when the limit trips —
+	// it sees a request whose body dies mid-stream. Capping the body protects
+	// mcp-gate's own memory and gives the client an honest status code; it is
+	// not an upstream shield, and MAX_REQUEST_BODY should not be reasoned about
+	// as one.
+	var upstreamCalled atomic.Bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalled.Store(true)
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	p := proxy.New(mustParseURL(t, upstream.URL), proxy.DefaultTransportConfig())
+	limited := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
+		p.ServeHTTP(w, r)
+	})
+	front := httptest.NewServer(limited)
+	defer front.Close()
+
+	t.Run("over the limit", func(t *testing.T) {
+		upstreamCalled.Store(false)
+		body := strings.NewReader(strings.Repeat("x", limit*4))
+		req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, front.URL+"/mcp", body)
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode != http.StatusRequestEntityTooLarge {
+			t.Fatalf("status = %d, want 413", resp.StatusCode)
+		}
+
+		var decoded map[string]string
+		if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if decoded["error"] != "payload_too_large" {
+			t.Errorf("error = %q, want payload_too_large", decoded["error"])
+		}
+	})
+
+	t.Run("within the limit still proxies", func(t *testing.T) {
+		upstreamCalled.Store(false)
+		body := strings.NewReader(strings.Repeat("x", limit/2))
+		req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, front.URL+"/mcp", body)
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("status = %d, want 200", resp.StatusCode)
+		}
+		if !upstreamCalled.Load() {
+			t.Error("a request within the limit did not reach upstream")
+		}
+	})
 }

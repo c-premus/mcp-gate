@@ -888,14 +888,19 @@ func TestRun_OversizedBodyRejected(t *testing.T) {
 	_, _ = io.ReadAll(resp.Body)
 
 	// http.MaxBytesReader trips inside the proxy's body-relay path, which
-	// httputil.ReverseProxy surfaces as an upstream read error → 502 via
-	// our ErrorHandler. Pin 502 explicitly so a future change that
-	// short-circuits with 413 (RFC 7231 "Payload Too Large") at the
-	// MaxBytesReader boundary, or 400, is caught — both are valid behaviors
-	// but switching between them is a contract change worth noticing.
-	if resp.StatusCode != http.StatusBadGateway {
-		t.Errorf("status = %d, want %d (oversized body should surface as upstream error)",
-			resp.StatusCode, http.StatusBadGateway)
+	// httputil.ReverseProxy surfaces to our ErrorHandler as a read error. This
+	// used to be reported as 502 upstream_error, and this assertion pinned that
+	// deliberately — its previous comment asked to be told if anyone switched
+	// to 413, because it is a contract change.
+	//
+	// It was switched, on purpose: 502 blamed a healthy upstream for the
+	// client's oversized request and inflated the 5xx ratio the deploy alert
+	// watches, and MCP 2026-07-28 asks intermediaries to "return an appropriate
+	// HTTP error status for validation failures". The assertion stays, now
+	// pinning 413, for the same reason it existed before.
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Errorf("status = %d, want %d (oversized body is a client error, not an upstream one)",
+			resp.StatusCode, http.StatusRequestEntityTooLarge)
 	}
 }
 
