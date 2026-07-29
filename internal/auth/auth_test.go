@@ -1358,6 +1358,10 @@ func TestChallengeShape(t *testing.T) {
 			authHeader: "Bearer not.a.jwt",
 			wantStatus: http.StatusUnauthorized,
 			wantParams: []string{`realm="`, `error="invalid_token"`, `resource_metadata="`},
+			// Like the no-token challenge, and for the same reason: the client
+			// is about to start a fresh authorization and needs to know what to
+			// request. Contrast the 403, which names what is missing.
+			wantScope: `scope="openid profile"`,
 		},
 		{
 			name:       "insufficient scope",

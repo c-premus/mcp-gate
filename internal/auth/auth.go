@@ -485,10 +485,19 @@ func (m *Middleware) writeNoTokenError(w http.ResponseWriter) {
 // writeInvalidTokenError writes a 401 response for an invalid/expired token.
 // The desc parameter is logged server-side but a generic message is returned
 // to clients to prevent leaking internal details (key IDs, timing, etc.).
+//
+// Carries scope for the same reason the no-token challenge does: the MCP
+// authorization spec asks servers to "include a scope parameter in the
+// WWW-Authenticate header to indicate the scopes required for accessing the
+// resource", so a client re-authorizing after expiry knows what to request
+// without first fetching the metadata document. ScopesSupported rather than
+// RequiredScopes, matching the no-token challenge — the client is about to
+// start a fresh authorization, not step up an existing grant.
 func (m *Middleware) writeInvalidTokenError(w http.ResponseWriter) {
 	w.Header().Set("WWW-Authenticate", fmt.Sprintf(
-		`Bearer realm="%s", error="invalid_token", error_description="The access token is invalid or expired", resource_metadata="%s"`,
+		`Bearer realm="%s", error="invalid_token", scope="%s", error_description="The access token is invalid or expired", resource_metadata="%s"`,
 		sanitizeQuotedString(m.cfg.Realm),
+		sanitizeQuotedString(m.cfg.ScopesSupported),
 		sanitizeQuotedString(m.metadataURL),
 	))
 	w.Header().Set("Content-Type", "application/json")
