@@ -226,6 +226,21 @@ func New(upstreamURL *url.URL, tc TransportConfig) *httputil.ReverseProxy {
 			isSSE := strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream")
 			reqCtx := resp.Request.Context()
 
+			// MCP 2026-07-28 Streamable HTTP: "When initiating an SSE stream,
+			// servers SHOULD include the X-Accel-Buffering: no header in the
+			// HTTP response. This instructs reverse proxies to disable response
+			// buffering."
+			//
+			// mcp-gate does not buffer (FlushInterval: -1), but it is not the
+			// last proxy in the chain — Traefik and Cloudflare both sit between
+			// here and the client, and this header is the conventional signal
+			// to them. Setting it (rather than only forwarding upstream's) means
+			// the guarantee holds even when the upstream MCP server predates
+			// this requirement.
+			if isSSE {
+				resp.Header.Set("X-Accel-Buffering", "no")
+			}
+
 			// SSE idle timeout: wrap the body so a silent stream is force-closed
 			// after the configured idle period. We layer this UNDER the byte
 			// counter so byte counts include partial reads before idle close.

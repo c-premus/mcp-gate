@@ -938,3 +938,47 @@ func TestMcpParamHeaderNameCanonicalized(t *testing.T) {
 		t.Errorf("value lost along with the casing: %q = %v, want [%q]", canonical, v, value)
 	}
 }
+
+// TestSSEResponseSetsAccelBuffering covers the MCP 2026-07-28 SHOULD that a
+// server initiating an SSE stream sends X-Accel-Buffering: no.
+//
+// mcp-gate does not buffer — FlushInterval: -1 — but it is not the last proxy
+// in the chain, and this header is the conventional instruction to the ones
+// downstream. The negative case matters as much as the positive: an
+// unconditional Set would put a meaningless header on every JSON response.
+func TestSSEResponseSetsAccelBuffering(t *testing.T) {
+	tests := []struct {
+		name        string
+		contentType string
+		want        string
+	}{
+		{"sse response", "text/event-stream", "no"},
+		{"sse with charset parameter", "text/event-stream; charset=utf-8", "no"},
+		{"uppercase content type still matches", "TEXT/EVENT-STREAM", "no"},
+		{"json response is untouched", "application/json", ""},
+		{"no content type is untouched", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if tt.contentType != "" {
+					w.Header().Set("Content-Type", tt.contentType)
+				}
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte("data: hello\n\n"))
+			}))
+			defer upstream.Close()
+
+			req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", http.NoBody)
+			resp := doProxyRequest(t, upstream, req)
+			defer func() { _ = resp.Body.Close() }()
+			_, _ = io.ReadAll(resp.Body)
+
+			if got := resp.Header.Get("X-Accel-Buffering"); got != tt.want {
+				t.Errorf("X-Accel-Buffering = %q, want %q (Content-Type: %q)",
+					got, tt.want, tt.contentType)
+			}
+		})
+	}
+}
