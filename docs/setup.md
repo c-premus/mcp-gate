@@ -95,6 +95,7 @@ In many providers, the issuer URL and the authorization server URL are the same 
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `METRICS_ADDR` | `:9090` | Prometheus metrics bind address |
 | `TRUSTED_PROXIES` | *(empty)* | Comma-separated CIDRs for trusted reverse proxies |
+| `ALLOWED_ORIGINS` | *(empty)* | Comma-separated browser origins (e.g. `https://claude.ai`). Empty disables Origin validation. See "DNS rebinding" below |
 | `RATE_LIMIT_RPS` | `10` | Per-IP requests per second |
 | `RATE_LIMIT_BURST` | `20` | Per-IP burst allowance |
 | `MAX_CONCURRENT_REQUESTS` | `100` | Max concurrent requests per IP |
@@ -257,3 +258,47 @@ If mcp-gate is behind a reverse proxy (e.g., Traefik, nginx, Caddy):
 - Set `TRUSTED_PROXIES` to the proxy's IP or CIDR so mcp-gate reads the real client IP from `X-Forwarded-For` / `X-Real-IP`
 - Make sure the reverse proxy forwards the `Authorization` header
 - Do not configure the reverse proxy to return custom error pages for 401/403 responses -- these responses contain OAuth-required `WWW-Authenticate` headers that Claude.ai needs
+- Make sure the reverse proxy forwards `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, and any `Mcp-Param-*` headers unmodified. MCP 2026-07-28 requires the origin server to reject a request whose headers disagree with its body, so a proxy that strips unknown headers turns every conformant request into a `-32020 HeaderMismatch` error -- and it looks like a bug in the MCP server, not in the proxy
+
+### DNS Rebinding and `ALLOWED_ORIGINS`
+
+MCP 2026-07-28 requires servers to validate the `Origin` header and return
+`403` when it is present and not allowed. mcp-gate implements this but leaves
+it **disabled by default**, and the choice of whether to enable it depends
+entirely on how you have deployed it.
+
+**Leave it unset** if mcp-gate is reachable only over public HTTPS at a real
+domain. DNS rebinding requires an attacker to re-point a name your browser
+already trusts, which is why the same spec section pairs the requirement with
+"when running locally, servers SHOULD bind only to localhost". A public origin
+with a real certificate cannot be rebound, and a cross-origin browser cannot
+read mcp-gate's responses regardless, because it sends no CORS headers.
+
+**Set it** if mcp-gate fronts an MCP server on a LAN or loopback interface,
+where a victim's browser can reach it and rebinding is a live threat:
+
+```bash
+ALLOWED_ORIGINS=https://claude.ai,https://claude.com
+```
+
+Behavior when configured:
+
+- A request with **no** `Origin` header is allowed. That is the spec's own
+  carve-out, and it is what keeps every non-browser MCP client working.
+- Matching is **exact** on scheme, host, and port, after lowercasing scheme and
+  host. No wildcards -- `https://*.example.com` is rejected at startup rather
+  than accepted and silently matching nothing. Suffix matching is the classic
+  way origin checks fail open, so `https://claude.ai.evil.example` is refused.
+- The port is part of the origin. Browsers omit the default port, so list
+  `https://example.com`, not `https://example.com:443`, unless the client
+  really sends the explicit form.
+- `null` (the opaque origin) is refused in the allow-list: it is shared by every
+  sandboxed iframe and `file://` document.
+- `/healthz` is exempt, deliberately. If the liveness probe could be blocked by
+  a bad allow-list, a misconfiguration would take the container down through the
+  health check instead of surfacing as a visible `403`.
+
+**Before enabling in production, know the failure mode.** A wrong allow-list
+returns `403` on every request while `/healthz` stays green -- container health
+checks pass, deploy smoke tests pass, and automatic rollback never fires. Watch
+`mcpgate_origin_rejected_total`; it is the only signal you get.

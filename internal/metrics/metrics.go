@@ -149,6 +149,18 @@ var (
 		Help: "Number of trusted proxy CIDRs parsed from TRUSTED_PROXIES at startup.",
 	})
 
+	// OriginRejectedTotal counts requests rejected by Origin validation.
+	// Unlabelled on purpose: the rejected origin is attacker-controlled and
+	// unbounded, so it belongs in logs, not in a metric label.
+	//
+	// This is the only signal an operator gets after enabling ALLOWED_ORIGINS.
+	// A misconfigured allow-list rejects every request while /healthz stays
+	// green, so nothing else in the stack will tell them.
+	OriginRejectedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "mcpgate_origin_rejected_total",
+		Help: "Requests rejected because the Origin header was not in ALLOWED_ORIGINS.",
+	})
+
 	// OTELSpansDroppedTotal is a placeholder counter for spans dropped by the
 	// OTLP batch span processor when its queue is full. The OTel Go SDK
 	// (sdk/trace v1.43.0) tracks dropped spans internally via an unexported

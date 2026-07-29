@@ -1596,3 +1596,100 @@ func TestRun_WellKnownFormsServeIdenticalBytes(t *testing.T) {
 		t.Errorf("the two well-known forms serve different documents:\n root: %s\n path: %s", root, inserted)
 	}
 }
+
+// TestRun_OriginValidationDisabledByDefault is the assertion that matters most
+// for this feature: with ALLOWED_ORIGINS unset — the production configuration —
+// an Origin header changes nothing at all.
+//
+// If this ever fails, every browser-originated request to the live connector is
+// being 403'd, and nothing else would tell us: /healthz is exempt and stays
+// green, so the container stays healthy and deploy rollback never fires.
+func TestRun_OriginValidationDisabledByDefault(t *testing.T) {
+	jwks := newTestJWKS(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
+	if len(cfg.allowedOrigins) != 0 {
+		t.Fatalf("test config should leave allowedOrigins empty, got %v", cfg.allowedOrigins)
+	}
+	result, cancel, _ := startRun(t, &cfg)
+	defer cancel()
+
+	// An origin nobody would allow-list. Unauthenticated, so the expected
+	// answer is the auth challenge — proving the request reached the auth
+	// middleware rather than being cut off by an origin check.
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost,
+		fmt.Sprintf("http://%s/mcp", result.Addr), http.NoBody)
+	req.Header.Set("Origin", "https://definitely-not-allowed.example")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusForbidden {
+		t.Fatal("origin validation is active with ALLOWED_ORIGINS unset — it must be opt-in")
+	}
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401 (request should reach auth untouched)", resp.StatusCode)
+	}
+}
+
+// TestRun_OriginValidationEnabled exercises the configured path end to end,
+// including the /healthz exemption that keeps a bad allow-list from taking the
+// container down through its health check.
+func TestRun_OriginValidationEnabled(t *testing.T) {
+	jwks := newTestJWKS(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
+	cfg.allowedOrigins = []string{"https://claude.ai"}
+	result, cancel, _ := startRun(t, &cfg)
+	defer cancel()
+
+	tests := []struct {
+		name       string
+		path       string
+		originHdr  string
+		wantStatus int
+	}{
+		// 401, not 200: these reach the auth middleware, which is the point.
+		{"allowed origin reaches auth", "/mcp", "https://claude.ai", http.StatusUnauthorized},
+		{"absent origin reaches auth", "/mcp", "", http.StatusUnauthorized},
+		{"disallowed origin is blocked", "/mcp", "https://evil.example", http.StatusForbidden},
+		{"suffix confusion is blocked", "/mcp", "https://claude.ai.evil.example", http.StatusForbidden},
+		{"healthz is exempt", "/healthz", "https://evil.example", http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet,
+				fmt.Sprintf("http://%s%s", result.Addr, tt.path), http.NoBody)
+			if tt.originHdr != "" {
+				req.Header.Set("Origin", tt.originHdr)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("request failed: %v", err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+
+			if resp.StatusCode != tt.wantStatus {
+				t.Errorf("status = %d, want %d", resp.StatusCode, tt.wantStatus)
+			}
+			// Security headers wrap the origin guard, so even a 403 carries them.
+			if resp.StatusCode == http.StatusForbidden {
+				if got := resp.Header.Get("X-Content-Type-Options"); got != "nosniff" {
+					t.Errorf("403 missing security headers: X-Content-Type-Options = %q", got)
+				}
+			}
+		})
+	}
+}

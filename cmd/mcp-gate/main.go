@@ -22,6 +22,7 @@ import (
 	"github.com/c-premus/mcp-gate/internal/auth"
 	"github.com/c-premus/mcp-gate/internal/metadata"
 	"github.com/c-premus/mcp-gate/internal/metrics"
+	"github.com/c-premus/mcp-gate/internal/origin"
 	otelsetup "github.com/c-premus/mcp-gate/internal/otel"
 	"github.com/c-premus/mcp-gate/internal/proxy"
 	"github.com/c-premus/mcp-gate/internal/ratelimit"
@@ -88,6 +89,7 @@ type runConfig struct {
 	shutdownTimeout     time.Duration
 	maxRequestBody      int64
 	trustedProxies      []netip.Prefix
+	allowedOrigins      []string
 	rateLimitRPS        float64
 	rateLimitBurst      int
 	maxConcurrentPerIP  int
@@ -242,6 +244,20 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *
 	warnOfflineAccess("SCOPES_SUPPORTED", cfg.scopesSupported)
 	warnOfflineAccess("REQUIRED_SCOPES", cfg.requiredScopes)
 
+	// Origin validation is off unless ALLOWED_ORIGINS is set. Log the posture
+	// either way: enabled, this is the only startup evidence of an allow-list
+	// that can silently reject every browser request; disabled, it tells an
+	// operator reading boot logs after a rebinding-hardening review that the
+	// omission is a configuration state, not a missing feature.
+	if len(cfg.allowedOrigins) > 0 {
+		slog.Info("origin validation enabled",
+			"allowed_origins", cfg.allowedOrigins,
+			"exempt_paths", []string{"/healthz"},
+		)
+	} else {
+		slog.Info("origin validation disabled", "reason", "ALLOWED_ORIGINS is unset")
+	}
+
 	// Record build info metric
 	metrics.Info.WithLabelValues(version).Set(1)
 
@@ -319,7 +335,7 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *
 		RequiredScopes:   cfg.requiredScopes,
 		ResourceURI:      cfg.resourceURI,
 		Realm:            "grafana-mcp",
-		ScopesSupported: strings.Join(cfg.scopesSupported, " "),
+		ScopesSupported:  strings.Join(cfg.scopesSupported, " "),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("auth middleware init: %w", err)
@@ -388,13 +404,29 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *
 		authedProxy.ServeHTTP(w, r)
 	}))
 
-	// Wrap mux with security headers applied to all routes
+	// Optional Origin validation (MCP 2026-07-28 DNS-rebinding requirement).
+	// A no-op returning mux unchanged unless ALLOWED_ORIGINS is set — see the
+	// internal/origin package doc for why this is opt-in rather than default-on.
+	//
+	// Sits directly outside the mux: inside the rate limiter, so a flood of
+	// bad-origin requests is still throttled, and inside securityHeaders, so a
+	// 403 body still carries nosniff and a null CSP. Being outside the mux puts
+	// it ahead of the auth middleware, so a rejected request never costs a JWT
+	// validation.
+	//
+	// /healthz is exempt. Coupling the liveness signal to an origin allow-list
+	// means a misconfiguration takes the container down through the health
+	// check — where deploy rollback reads it as a bad image — instead of
+	// surfacing as a visible 403 with a counter behind it.
+	originGuarded := origin.Middleware(cfg.allowedOrigins, "/healthz")(mux)
+
+	// Wrap with security headers applied to all routes
 	securityHeaders := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Content-Security-Policy", "default-src 'none'")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		mux.ServeHTTP(w, r)
+		originGuarded.ServeHTTP(w, r)
 	})
 
 	// Per-IP rate limiter. With REDIS_ADDR set, the limiter is backed by Redis
@@ -454,7 +486,7 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *
 	cl := ratelimit.NewConcurrentLimiter(cfg.maxConcurrentPerIP, cfg.maxTotalConnections)
 
 	// Handler wrapping order (outermost → innermost):
-	// otelhttp → realip → metrics → rateLimiter → concurrentLimiter → securityHeaders → mux
+	// otelhttp → realip → metrics → rateLimiter → concurrentLimiter → securityHeaders → originGuard → mux
 	handler := cl.Middleware(securityHeaders)
 	handler = rlMiddleware(handler)
 	handler = metrics.Middleware(handler)
@@ -625,9 +657,9 @@ func loadConfig() (runConfig, error) {
 		return runConfig{}, err
 	}
 
-	trustedProxies, err := realip.ParseCIDRs(splitCSV(os.Getenv("TRUSTED_PROXIES")))
+	trust, err := loadTrustBoundaries()
 	if err != nil {
-		return runConfig{}, fmt.Errorf("TRUSTED_PROXIES: %w", err)
+		return runConfig{}, err
 	}
 
 	rateLimitRPS, err := getenvFloat("RATE_LIMIT_RPS", "10")
@@ -703,7 +735,8 @@ func loadConfig() (runConfig, error) {
 		jwksRefreshInterval: jwksRefreshInterval,
 		shutdownTimeout:     shutdownTimeout,
 		maxRequestBody:      maxRequestBody,
-		trustedProxies:      trustedProxies,
+		trustedProxies:      trust.proxies,
+		allowedOrigins:      trust.origins,
 		rateLimitRPS:        rateLimitRPS,
 		rateLimitBurst:      rateLimitBurst,
 		maxConcurrentPerIP:  maxConcurrentPerIP,
@@ -811,6 +844,33 @@ func loadServerTimeouts() (serverTimeouts, error) {
 		return serverTimeouts{}, err
 	}
 	return serverTimeouts{upstream: upstream, sseIdle: sseIdle, read: read, idle: idle}, nil
+}
+
+// trustBoundaries groups the two settings that decide which network-level
+// assertions mcp-gate is willing to believe: which peers may speak for a
+// client's IP, and which browser origins may reach it at all. Extracted so
+// loadConfig stays under the gocyclo threshold, following loadServerTimeouts;
+// the grouping also reads well, because both are answers to "who do we trust,
+// and about what".
+type trustBoundaries struct {
+	proxies []netip.Prefix // TRUSTED_PROXIES — peers whose forwarding headers we honor
+	origins []string       // ALLOWED_ORIGINS — browser origins allowed through (empty = check disabled)
+}
+
+// loadTrustBoundaries reads TRUSTED_PROXIES and ALLOWED_ORIGINS. Both parsers
+// refuse the entry an operator almost never means — a catch-all CIDR, and the
+// opaque "null" origin or a wildcard — so a misconfiguration fails loudly at
+// startup rather than silently widening or narrowing access.
+func loadTrustBoundaries() (trustBoundaries, error) {
+	proxies, err := realip.ParseCIDRs(splitCSV(os.Getenv("TRUSTED_PROXIES")))
+	if err != nil {
+		return trustBoundaries{}, fmt.Errorf("TRUSTED_PROXIES: %w", err)
+	}
+	origins, err := origin.Parse(splitCSV(os.Getenv("ALLOWED_ORIGINS")))
+	if err != nil {
+		return trustBoundaries{}, fmt.Errorf("ALLOWED_ORIGINS: %w", err)
+	}
+	return trustBoundaries{proxies: proxies, origins: origins}, nil
 }
 
 // warnOfflineAccess logs when a scope list advertises offline_access, which the
