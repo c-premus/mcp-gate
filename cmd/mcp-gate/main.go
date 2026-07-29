@@ -342,6 +342,30 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *
 	}
 	mux.HandleFunc("GET "+metadata.WellKnownPath, metadataHandler)
 
+	// RFC 9728 §3.1 path insertion. When the resource is mounted at a path
+	// (RESOURCE_URI=https://example.com/mcp), its metadata lives at
+	// /.well-known/oauth-protected-resource/mcp, and MCP clients probe that
+	// form BEFORE falling back to the root form. Both handlers share one
+	// closure over one pre-marshaled byte slice, so the second route costs
+	// nothing per request.
+	//
+	// A root-mounted resource — this deployment — registers nothing extra.
+	if suffix := metadata.PathSuffix(cfg.resourceURI); suffix != "" {
+		mux.HandleFunc("GET "+metadata.WellKnownPath+suffix, metadataHandler)
+	}
+
+	// Everything else beneath the well-known prefix is a discovery probe for a
+	// resource we do not serve. Answer 404.
+	//
+	// These paths previously fell through to the catch-all, hit the auth
+	// middleware, and came back as a 401 challenge — which tells a client
+	// "authenticate and retry" about a document that does not exist, and can
+	// push a naive implementation into a discovery loop. It also meant an
+	// unauthenticated discovery probe reached the auth middleware for no
+	// reason. Registered for all methods: the document is absent regardless of
+	// how you ask for it.
+	mux.HandleFunc(metadata.WellKnownPath+"/", http.NotFound)
+
 	// /healthz is reachable without authentication (Docker HEALTHCHECK, Traefik
 	// probes), so the response bodies are deliberately generic — the status
 	// code carries the signal. "jwks not ready" / subsystem-specific strings

@@ -33,6 +33,10 @@ func FuzzRouteClassifier(f *testing.F) {
 		"/healthz/",                              // trailing slash — should NOT match healthz
 		"/HEALTHZ",                               // case sensitivity
 		"/.well-known/oauth-protected-resource/", // trailing slash variant
+		"/.well-known/oauth-protected-resource/mcp",
+		"/.well-known/oauth-protected-resource/public/mcp",
+		"/.well-known/oauth-protected-resourceXYZ", // near-miss, no separator
+		"/.well-known/oauth-protected-resource/..%2f",
 		"",
 		"/" + strings.Repeat("a", 4096), // very long path
 		"/\x00",                         // NUL byte

@@ -18,6 +18,17 @@ func TestRouteClassifier(t *testing.T) {
 		want string
 	}{
 		{"/.well-known/oauth-protected-resource", "metadata"},
+		// The mux serves the RFC 9728 §3.1 path-inserted form and 404s the rest
+		// of the subtree. Both are metadata traffic; the classifier runs outside
+		// the mux and has to agree with it.
+		{"/.well-known/oauth-protected-resource/mcp", "metadata"},
+		{"/.well-known/oauth-protected-resource/public/mcp", "metadata"},
+		{"/.well-known/oauth-protected-resource/", "metadata"},
+		// Near-miss: no separator, so the mux routes this to the proxy and the
+		// label must say so. This is what the trailing "/" in the prefix check
+		// protects.
+		{"/.well-known/oauth-protected-resourceXYZ", "proxy"},
+		{"/.well-known/oauth-authorization-server", "proxy"},
 		{"/healthz", "healthz"},
 		{"/mcp", "proxy"},
 		{"/mcp/v1", "proxy"},

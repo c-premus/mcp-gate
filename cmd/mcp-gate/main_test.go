@@ -485,8 +485,15 @@ func TestRun_SecurityHeadersOnAllRoutes(t *testing.T) {
 		"Referrer-Policy":         "no-referrer",
 	}
 
-	// Security headers should be on all routes: catch-all, healthz, and metadata.
-	paths := []string{"/anything", "/healthz", "/.well-known/oauth-protected-resource"}
+	// Security headers apply to every route, including the well-known subtree's
+	// 404 — a response body an attacker can reach unauthenticated still needs
+	// nosniff and a null CSP.
+	paths := []string{
+		"/anything",
+		"/healthz",
+		"/.well-known/oauth-protected-resource",
+		"/.well-known/oauth-protected-resource/not-served",
+	}
 	for _, path := range paths {
 		req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, fmt.Sprintf("http://%s%s", result.Addr, path), http.NoBody)
 		resp, err := http.DefaultClient.Do(req)
@@ -1419,5 +1426,168 @@ func TestWarnOfflineAccess(t *testing.T) {
 				t.Errorf("warning does not name the env var to edit: %s", buf.String())
 			}
 		})
+	}
+}
+
+// TestRun_WellKnownSubtree covers RFC 9728 §3.1 path insertion end to end.
+//
+// Clients probe the path-inserted form BEFORE the root form, so a deployment
+// whose RESOURCE_URI carries a path must answer there. A root-mounted
+// deployment — this one — must register nothing extra, and everything else
+// under the well-known prefix must 404 rather than fall through to the auth
+// middleware and come back as a 401 challenge. Telling a client "authenticate
+// and retry" about a metadata document that does not exist is misleading and
+// can push a naive implementation into a discovery loop.
+func TestRun_WellKnownSubtree(t *testing.T) {
+	const wellKnown = "/.well-known/oauth-protected-resource"
+
+	tests := []struct {
+		name        string
+		resourceURI string
+		path        string
+		wantStatus  int
+		wantMeta    bool
+	}{
+		{
+			name:        "root-mounted serves the bare path",
+			resourceURI: "https://grafana-mcp.example.com",
+			path:        wellKnown,
+			wantStatus:  http.StatusOK,
+			wantMeta:    true,
+		},
+		{
+			name:        "root-mounted 404s a suffix it does not serve",
+			resourceURI: "https://grafana-mcp.example.com",
+			path:        wellKnown + "/mcp",
+			wantStatus:  http.StatusNotFound,
+		},
+		{
+			name:        "root-mounted 404s the trailing-slash form",
+			resourceURI: "https://grafana-mcp.example.com",
+			path:        wellKnown + "/",
+			wantStatus:  http.StatusNotFound,
+		},
+		{
+			name:        "path-mounted serves the inserted form",
+			resourceURI: "https://example.com/mcp",
+			path:        wellKnown + "/mcp",
+			wantStatus:  http.StatusOK,
+			wantMeta:    true,
+		},
+		{
+			name:        "path-mounted still serves the root form as fallback",
+			resourceURI: "https://example.com/mcp",
+			path:        wellKnown,
+			wantStatus:  http.StatusOK,
+			wantMeta:    true,
+		},
+		{
+			name:        "path-mounted 404s a different suffix",
+			resourceURI: "https://example.com/mcp",
+			path:        wellKnown + "/other",
+			wantStatus:  http.StatusNotFound,
+		},
+		{
+			name:        "nested path-mounted resource",
+			resourceURI: "https://example.com/public/mcp",
+			path:        wellKnown + "/public/mcp",
+			wantStatus:  http.StatusOK,
+			wantMeta:    true,
+		},
+		{
+			// No separator, so this is not part of the well-known subtree. It
+			// belongs to the proxy, which means auth — a 401 challenge here is
+			// the correct answer, and the assertion guards the prefix check
+			// from being loosened to a bare HasPrefix.
+			name:        "near-miss path is proxy traffic, not metadata",
+			resourceURI: "https://grafana-mcp.example.com",
+			path:        wellKnown + "XYZ",
+			wantStatus:  http.StatusUnauthorized,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			jwks := newTestJWKS(t)
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer upstream.Close()
+
+			cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
+			cfg.resourceURI = tt.resourceURI
+			result, cancel, _ := startRun(t, &cfg)
+			defer cancel()
+
+			req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet,
+				"http://"+result.Addr+tt.path, http.NoBody)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("request failed: %v", err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+
+			if resp.StatusCode != tt.wantStatus {
+				t.Errorf("GET %s: status = %d, want %d", tt.path, resp.StatusCode, tt.wantStatus)
+			}
+
+			if tt.wantStatus == http.StatusNotFound {
+				// The point of the change: a discovery probe gets a terminal
+				// answer, not an invitation to authenticate.
+				if ch := resp.Header.Get("WWW-Authenticate"); ch != "" {
+					t.Errorf("GET %s: 404 carries a WWW-Authenticate challenge: %s", tt.path, ch)
+				}
+			}
+
+			if tt.wantMeta {
+				var meta map[string]any
+				if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
+					t.Fatalf("decode metadata: %v", err)
+				}
+				if meta["resource"] != tt.resourceURI {
+					t.Errorf("resource = %v, want %q", meta["resource"], tt.resourceURI)
+				}
+			}
+		})
+	}
+}
+
+// TestRun_WellKnownFormsServeIdenticalBytes asserts the root and path-inserted
+// routes share one pre-marshaled document rather than rendering separately —
+// two byte-different metadata documents for one resource would be a discovery
+// hazard, since clients may reach either.
+func TestRun_WellKnownFormsServeIdenticalBytes(t *testing.T) {
+	jwks := newTestJWKS(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
+	cfg.resourceURI = "https://example.com/mcp"
+	result, cancel, _ := startRun(t, &cfg)
+	defer cancel()
+
+	get := func(path string) []byte {
+		t.Helper()
+		req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet,
+			"http://"+result.Addr+path, http.NoBody)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		return body
+	}
+
+	root := get("/.well-known/oauth-protected-resource")
+	inserted := get("/.well-known/oauth-protected-resource/mcp")
+
+	if !bytes.Equal(root, inserted) {
+		t.Errorf("the two well-known forms serve different documents:\n root: %s\n path: %s", root, inserted)
 	}
 }

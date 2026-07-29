@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/c-premus/mcp-gate/internal/metadata"
@@ -37,10 +38,19 @@ func truncate(s string, maxBytes int) string {
 // This runs OUTSIDE the mux, so it must independently reproduce the mux's
 // routing decision or the route label lies about where a request went.
 func RouteClassifier(r *http.Request) string {
-	switch r.URL.Path {
-	case metadata.WellKnownPath:
+	path := r.URL.Path
+	switch {
+	case path == metadata.WellKnownPath:
 		return "metadata"
-	case "/healthz":
+	// The mux serves the RFC 9728 §3.1 path-inserted form and answers 404 for
+	// the rest of the subtree; both are metadata traffic, not proxy traffic.
+	//
+	// The trailing "/" is load-bearing: a bare prefix match would also claim
+	// "/.well-known/oauth-protected-resourceXYZ", which the mux routes to the
+	// proxy, and the label would then contradict where the request went.
+	case strings.HasPrefix(path, metadata.WellKnownPath+"/"):
+		return "metadata"
+	case path == "/healthz":
 		return "healthz"
 	default:
 		return "proxy"
