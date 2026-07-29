@@ -737,3 +737,204 @@ func TestSSEIdleTimeoutDisabled(t *testing.T) {
 		t.Fatalf("idle_timeout counter incremented with SSEIdleTimeout=0: before=%v after=%v", beforeIdle, afterIdle)
 	}
 }
+
+// mcpHeaderEcho returns an upstream that echoes its entire inbound header map,
+// so tests can assert on both header names and values as they arrived.
+func mcpHeaderEcho(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(r.Header)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// doMCPHeaderEcho sends req through the proxy to a header-echoing upstream and
+// returns the headers the upstream saw.
+func doMCPHeaderEcho(t *testing.T, req *http.Request) http.Header {
+	t.Helper()
+	resp := doProxyRequest(t, mcpHeaderEcho(t), req)
+	defer func() { _ = resp.Body.Close() }()
+
+	var got http.Header
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode upstream headers: %v", err)
+	}
+	return got
+}
+
+// TestMCPHeadersForwardedVerbatim pins the transparency contract that MCP
+// 2026-07-28 depends on: mcp-gate forwards every Mcp-* request header to
+// upstream with its value byte-identical.
+//
+// The spec mirrors JSON-RPC body fields into HTTP headers (MCP-Protocol-Version,
+// Mcp-Method, Mcp-Name, Mcp-Param-*) so intermediaries can route without parsing
+// bodies, and requires the origin server to reject a request whose headers
+// disagree with its body (400, JSON-RPC -32020 HeaderMismatch). A proxy that
+// drops or rewrites one of these headers therefore turns every modern request
+// into a HeaderMismatch, and the failure presents as an upstream SDK bug rather
+// than a proxy bug. This test exists so a future header allow-list, sanitizer,
+// or "strip unknown headers" change fails here first.
+//
+// We forward these headers by omission — httputil.ReverseProxy copies
+// everything that is not hop-by-hop, and proxy.New deliberately deletes only
+// Authorization and Cookie. Nothing in the code says "forward Mcp-*", which is
+// exactly why the invariant needs a test rather than a comment.
+//
+// On header NAMES: net/http canonicalizes every inbound field name via
+// textproto.CanonicalMIMEHeaderKey before a handler runs, and the original
+// bytes are unrecoverable. So `Mcp-Param-userId` reaches upstream as
+// `Mcp-Param-Userid`. This is spec-compliant — RFC 9110 and the MCP spec both
+// state that field names are case-insensitive — but it is lossy, because the
+// spec encodes case-sensitive JSON property names into a case-insensitive
+// header name. mcp-gate cannot preserve the original casing without abandoning
+// net/http. Do NOT "fix" the assertions below to expect the sent casing; that
+// is unsatisfiable, not a bug in this proxy.
+func TestMCPHeadersForwardedVerbatim(t *testing.T) {
+	tests := []struct {
+		name   string
+		header string
+		value  string
+		why    string
+	}{
+		{
+			name:   "protocol version",
+			header: "MCP-Protocol-Version",
+			value:  "2026-07-28",
+			why:    "required on every POST; upstream matches it against _meta",
+		},
+		{
+			name:   "method",
+			header: "Mcp-Method",
+			value:  "tools/call",
+			why:    "required on all requests; mirrors the body's method",
+		},
+		{
+			name:   "name",
+			header: "Mcp-Name",
+			value:  "list_datasources",
+			why:    "required on tools/call, resources/read, prompts/get",
+		},
+		{
+			name:   "name as a resource URI",
+			header: "Mcp-Name",
+			value:  "file:///projects/myapp/config.json",
+			why:    "for resources/read, Mcp-Name carries params.uri",
+		},
+		{
+			name:   "base64 sentinel value",
+			header: "Mcp-Param-Greeting",
+			value:  "=?base64?SGVsbG8sIOS4lueVjA==?=",
+			why:    "the ?= suffix and = padding are what a naive sanitizer mangles",
+		},
+		{
+			name:   "sentinel-encoded name",
+			header: "Mcp-Name",
+			value:  "=?base64?PT9iYXNlNjQ/bGl0ZXJhbD89?=",
+			why:    "clients must encode any value matching the sentinel pattern",
+		},
+		{
+			name:   "plain param value",
+			header: "Mcp-Param-Region",
+			value:  "us-west1",
+			why:    "the common case: a mirrored tool parameter",
+		},
+		{
+			name:   "value containing spaces",
+			header: "Mcp-Param-Text",
+			value:  "two words",
+			why:    "spaces are legal in a field value and must not be trimmed or split",
+		},
+		{
+			// Removed from the protocol in 2026-07-28 — servers are told to
+			// ignore it. Ignoring is upstream's decision, not ours: mcp-gate is
+			// transparent, not a protocol filter. Dropping it here would break
+			// a legacy client talking to a legacy-capable upstream.
+			name:   "session id from a superseded revision",
+			header: "Mcp-Session-Id",
+			value:  "1868a90c-0d24-45a4-a1a5-2b0a1a5f3b0e",
+			why:    "we do not filter headers the origin server is entitled to see",
+		},
+		{
+			name:   "last event id from a superseded revision",
+			header: "Last-Event-ID",
+			value:  "42",
+			why:    "same reasoning; resumability is upstream's call, not ours",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", http.NoBody)
+			req.Header.Set(tt.header, tt.value)
+
+			got := doMCPHeaderEcho(t, req)
+
+			if v := got.Get(tt.header); v != tt.value {
+				t.Errorf("%s not forwarded verbatim (%s)\n  sent: %q\n   got: %q",
+					tt.header, tt.why, tt.value, v)
+			}
+		})
+	}
+}
+
+// TestMcpParamHeadersNotStripped covers the literal requirement that
+// "Intermediate servers that do not recognize an Mcp-Param-{Name} header MUST
+// forward it and otherwise ignore it." mcp-gate recognizes none of them, so
+// every one of these is the unrecognized case.
+func TestMcpParamHeadersNotStripped(t *testing.T) {
+	sent := map[string]string{
+		"Mcp-Param-Region":     "us-west1",
+		"Mcp-Param-Query":      "=?base64?c2VsZWN0ICo=?=",
+		"Mcp-Param-Limit":      "100",
+		"Mcp-Param-DryRun":     "true",
+		"Mcp-Param-Unheard-Of": "whatever",
+	}
+
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", http.NoBody)
+	for k, v := range sent {
+		req.Header.Set(k, v)
+	}
+
+	got := doMCPHeaderEcho(t, req)
+
+	for k, want := range sent {
+		if v := got.Get(k); v != want {
+			t.Errorf("%s: sent %q, upstream got %q", k, want, v)
+		}
+	}
+}
+
+// TestMcpParamHeaderNameCanonicalized documents the one place where mcp-gate is
+// not byte-transparent, and why it cannot be. See the note on header names in
+// TestMCPHeadersForwardedVerbatim.
+//
+// The header is set by direct map assignment rather than Header.Set, because
+// Set canonicalizes on write and the mixed-case name would never reach the wire.
+func TestMcpParamHeaderNameCanonicalized(t *testing.T) {
+	const (
+		sentName  = "Mcp-Param-userId"
+		canonical = "Mcp-Param-Userid"
+		value     = "42"
+	)
+
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", http.NoBody)
+	req.Header[sentName] = []string{value}
+
+	got := doMCPHeaderEcho(t, req)
+
+	// Iterating rather than indexing by sentName: a map lookup with a
+	// non-canonical key is what staticcheck's SA1008 exists to catch, and it is
+	// right in general — the point here is precisely that the key cannot be
+	// found that way, which the loop states without looking like a mistake.
+	for name := range got {
+		if name == sentName {
+			t.Errorf("unexpected: %q survived canonicalization. If net/http changed, "+
+				"update this test and the note in TestMCPHeadersForwardedVerbatim.", sentName)
+		}
+	}
+	if v := got[canonical]; len(v) != 1 || v[0] != value {
+		t.Errorf("value lost along with the casing: %q = %v, want [%q]", canonical, v, value)
+	}
+}
