@@ -3,7 +3,7 @@ module github.com/c-premus/mcp-gate
 go 1.26.5
 
 require (
-	github.com/MicahParks/jwkset v0.11.1
+	github.com/MicahParks/jwkset v0.11.2
 	github.com/MicahParks/keyfunc/v3 v3.8.1
 	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/go-redis/redis_rate/v10 v10.0.1
