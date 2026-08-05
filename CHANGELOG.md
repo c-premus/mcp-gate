@@ -8,10 +8,17 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.17.4] - 2026-08-05
+
+### Fixes
+
+- fix(deps): update go dependencies (#186)
+
 ## [0.17.3] - 2026-08-02
 
 ### Maintenance
 
+- chore(changelog): update for v0.17.3
 - chore(deps): update docker/login-action action to v4.6.0 (#185)
 
 ## [0.17.2] - 2026-08-01
@@ -728,6 +735,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.17.4]: https://github.com/c-premus/mcp-gate/compare/v0.17.3...v0.17.4
 [0.17.3]: https://github.com/c-premus/mcp-gate/compare/v0.17.2...v0.17.3
 [0.17.2]: https://github.com/c-premus/mcp-gate/compare/v0.17.1...v0.17.2
 [0.17.1]: https://github.com/c-premus/mcp-gate/compare/v0.17.0...v0.17.1
