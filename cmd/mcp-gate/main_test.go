@@ -80,6 +80,8 @@ func defaultTestConfig(jwksURL, upstreamURL string) runConfig {
 		requiredScopes:      []string{"openid"},
 		scopesSupported:     []string{"openid", "profile"},
 		resourceName:        "Test MCP Server",
+		resourceDocs:        "https://example.com/docs",
+		realm:               "grafana-mcp.example.com",
 		jwksRefreshInterval: time.Hour,
 		shutdownTimeout:     5 * time.Second,
 		maxRequestBody:      10 << 20,
@@ -373,6 +375,9 @@ func TestRun_MetadataEndpoint(t *testing.T) {
 	if meta["resource_name"] != cfg.resourceName {
 		t.Errorf("resource_name = %q, want %q", meta["resource_name"], cfg.resourceName)
 	}
+	if meta["resource_documentation"] != cfg.resourceDocs {
+		t.Errorf("resource_documentation = %q, want %q", meta["resource_documentation"], cfg.resourceDocs)
+	}
 
 	servers, ok := meta["authorization_servers"].([]any)
 	if !ok || len(servers) == 0 {
@@ -415,6 +420,14 @@ func TestRun_UnauthenticatedRequest401(t *testing.T) {
 	}
 	if !strings.Contains(wwwAuth, "resource_metadata") {
 		t.Errorf("WWW-Authenticate = %q, want to contain resource_metadata", wwwAuth)
+	}
+	// Pin the realm VALUE, not just its presence. The realm was a compiled-in
+	// constant that ignored cfg entirely, and no test anywhere caught it — the
+	// wrong realm shipped to every deployment that wasn't the original one.
+	// internal/auth asserts challenge shape; this asserts the cmd-level wiring.
+	wantRealm := `realm="` + cfg.realm + `"`
+	if !strings.Contains(wwwAuth, wantRealm) {
+		t.Errorf("WWW-Authenticate = %q, want to contain %s", wwwAuth, wantRealm)
 	}
 
 	var body map[string]string
@@ -587,6 +600,13 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if cfg.resourceName != "Grafana MCP Server" {
 		t.Errorf("resourceName = %q", cfg.resourceName)
 	}
+	if cfg.resourceDocs != "https://github.com/c-premus/mcp-gate" {
+		t.Errorf("resourceDocs = %q, want https://github.com/c-premus/mcp-gate", cfg.resourceDocs)
+	}
+	// AUTH_REALM is unset, so the realm derives from the RESOURCE_URI hostname.
+	if cfg.realm != "grafana-mcp.example.com" {
+		t.Errorf("realm = %q, want grafana-mcp.example.com", cfg.realm)
+	}
 	if cfg.jwksRefreshInterval != time.Hour {
 		t.Errorf("jwksRefreshInterval = %v, want 1h", cfg.jwksRefreshInterval)
 	}
@@ -618,6 +638,8 @@ func TestLoadConfig_Optionals(t *testing.T) {
 	t.Setenv("REQUIRED_SCOPES", "openid,email")
 	t.Setenv("SCOPES_SUPPORTED", "openid,email,profile")
 	t.Setenv("RESOURCE_NAME", "Custom MCP")
+	t.Setenv("RESOURCE_DOCUMENTATION", "https://example.com/custom-docs")
+	t.Setenv("AUTH_REALM", "custom-realm")
 	t.Setenv("JWKS_REFRESH_INTERVAL", "30m")
 	t.Setenv("SHUTDOWN_TIMEOUT", "10s")
 	t.Setenv("MAX_REQUEST_BODY", "5242880")
@@ -640,6 +662,13 @@ func TestLoadConfig_Optionals(t *testing.T) {
 	}
 	if cfg.resourceName != "Custom MCP" {
 		t.Errorf("resourceName = %q", cfg.resourceName)
+	}
+	if cfg.resourceDocs != "https://example.com/custom-docs" {
+		t.Errorf("resourceDocs = %q", cfg.resourceDocs)
+	}
+	// An explicit AUTH_REALM overrides the RESOURCE_URI-derived default.
+	if cfg.realm != "custom-realm" {
+		t.Errorf("realm = %q, want custom-realm", cfg.realm)
 	}
 	if cfg.jwksRefreshInterval != 30*time.Minute {
 		t.Errorf("jwksRefreshInterval = %v, want 30m", cfg.jwksRefreshInterval)
@@ -688,6 +717,9 @@ func TestLoadConfig_Errors(t *testing.T) {
 		{"UPSTREAM_URL_invalid", func(t *testing.T) { t.Setenv("UPSTREAM_URL", "://bad") }, "UPSTREAM_URL is not a valid URL"},
 		{"RESOURCE_URI_invalid", func(t *testing.T) { t.Setenv("RESOURCE_URI", "://bad") }, "RESOURCE_URI is not a valid URL"},
 		{"AUTHORIZATION_SERVER_invalid", func(t *testing.T) { t.Setenv("AUTHORIZATION_SERVER", "://bad") }, "AUTHORIZATION_SERVER is not a valid URL"},
+		// A host-less RESOURCE_URI parses, but leaves no hostname to derive a realm
+		// from — refuse rather than emit realm="" on every challenge.
+		{"RESOURCE_URI_no_host_for_realm", func(t *testing.T) { t.Setenv("RESOURCE_URI", "/mcp") }, "no host to derive a realm from"},
 		// Bad optional values
 		{"bad_JWKS_REFRESH_INTERVAL", func(t *testing.T) { t.Setenv("JWKS_REFRESH_INTERVAL", "not-a-duration") }, "JWKS_REFRESH_INTERVAL"},
 		{"bad_SHUTDOWN_TIMEOUT", func(t *testing.T) { t.Setenv("SHUTDOWN_TIMEOUT", "not-a-duration") }, "SHUTDOWN_TIMEOUT"},

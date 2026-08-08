@@ -92,6 +92,8 @@ In many providers, the issuer URL and the authorization server URL are the same 
 |----------|---------|-------------|
 | `REQUIRED_SCOPES` | `openid` | Comma-separated scopes required in the JWT |
 | `SCOPES_SUPPORTED` | `openid,profile` | Scopes advertised in RFC 9728 metadata |
+| `AUTH_REALM` | *(RESOURCE_URI host)* | Protection space name in the `WWW-Authenticate` challenge. Defaults to the `RESOURCE_URI` hostname, so each deployment names its own resource |
+| `RESOURCE_DOCUMENTATION` | `https://github.com/c-premus/mcp-gate` | `resource_documentation` URL in RFC 9728 metadata. Point this at your protected resource's own docs |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `METRICS_ADDR` | `:9090` | Prometheus metrics bind address |
 | `TRUSTED_PROXIES` | *(empty)* | Comma-separated CIDRs for trusted reverse proxies |

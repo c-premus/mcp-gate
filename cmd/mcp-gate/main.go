@@ -99,6 +99,8 @@ type runConfig struct {
 	requiredScopes      []string
 	scopesSupported     []string
 	resourceName        string
+	resourceDocs        string
+	realm               string
 	jwksRefreshInterval time.Duration
 	shutdownTimeout     time.Duration
 	maxRequestBody      int64
@@ -331,7 +333,7 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *
 		ScopesSupported:        cfg.scopesSupported,
 		BearerMethodsSupported: []string{"header"},
 		ResourceName:           cfg.resourceName,
-		ResourceDocumentation:  "https://github.com/grafana/mcp-grafana",
+		ResourceDocumentation:  cfg.resourceDocs,
 	}
 
 	// Create JWKS context independent of signal context — cancelled explicitly
@@ -348,7 +350,7 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *
 		ExpectedAudience: cfg.expectedAudience,
 		RequiredScopes:   cfg.requiredScopes,
 		ResourceURI:      cfg.resourceURI,
-		Realm:            "grafana-mcp",
+		Realm:            cfg.realm,
 		ScopesSupported:  strings.Join(cfg.scopesSupported, " "),
 	})
 	if err != nil {
@@ -641,9 +643,10 @@ func loadConfig() (runConfig, error) {
 		return runConfig{}, fmt.Errorf("UPSTREAM_URL must use http:// or https:// scheme, got %s", upstreamURL.Scheme)
 	}
 
-	// Validate RESOURCE_URI
-	if _, err := url.ParseRequestURI(resourceURI); err != nil {
-		return runConfig{}, fmt.Errorf("RESOURCE_URI is not a valid URL: %w", err)
+	// Validate RESOURCE_URI and derive this instance's identity from it.
+	identity, err := loadResourceIdentity(resourceURI)
+	if err != nil {
+		return runConfig{}, err
 	}
 
 	// Validate AUTHORIZATION_SERVER
@@ -654,7 +657,6 @@ func loadConfig() (runConfig, error) {
 	// Optional config with defaults
 	requiredScopes := splitCSV(getenvDefault("REQUIRED_SCOPES", "openid"))
 	scopesSupported := splitCSV(getenvDefault("SCOPES_SUPPORTED", "openid,profile"))
-	resourceName := getenvDefault("RESOURCE_NAME", "Grafana MCP Server")
 
 	jwksRefreshInterval, err := getenvDuration("JWKS_REFRESH_INTERVAL", "1h")
 	if err != nil {
@@ -745,7 +747,9 @@ func loadConfig() (runConfig, error) {
 		expectedAudience:    expectedAudience,
 		requiredScopes:      requiredScopes,
 		scopesSupported:     scopesSupported,
-		resourceName:        resourceName,
+		resourceName:        identity.name,
+		resourceDocs:        identity.docs,
+		realm:               identity.realm,
 		jwksRefreshInterval: jwksRefreshInterval,
 		shutdownTimeout:     shutdownTimeout,
 		maxRequestBody:      maxRequestBody,
@@ -858,6 +862,47 @@ func loadServerTimeouts() (serverTimeouts, error) {
 		return serverTimeouts{}, err
 	}
 	return serverTimeouts{upstream: upstream, sseIdle: sseIdle, read: read, idle: idle}, nil
+}
+
+// resourceIdentity groups the three settings that describe *which* protected
+// resource this instance fronts, as opposed to how it validates tokens.
+// Extracted so loadConfig stays under the gocyclo threshold, following
+// loadServerTimeouts and loadTrustBoundaries; the grouping also reads well,
+// because all three answer "what should this instance call itself".
+//
+// The group exists because mcp-gate runs as more than one instance against
+// different upstreams. Every field here was once a compiled-in constant naming
+// the first deployment, which silently mislabeled every later one.
+type resourceIdentity struct {
+	name  string // RESOURCE_NAME — human-readable name in RFC 9728 metadata
+	docs  string // RESOURCE_DOCUMENTATION — documentation URL in RFC 9728 metadata
+	realm string // AUTH_REALM — protection space in the WWW-Authenticate challenge
+}
+
+// loadResourceIdentity validates RESOURCE_URI and reads RESOURCE_NAME,
+// RESOURCE_DOCUMENTATION and AUTH_REALM. It owns the RESOURCE_URI parse because
+// the realm is derived from it and nothing else needs the parsed form.
+//
+// The realm defaults to the RESOURCE_URI hostname so each deployment names its
+// own resource without configuration. Hostname() rather than Host keeps a port
+// out of the realm. ParseRequestURI accepts a host-less absolute path and
+// auth.NewMiddleware does not validate Realm, so an empty derivation would
+// silently emit realm="" on every challenge — refuse instead.
+func loadResourceIdentity(resourceURI string) (resourceIdentity, error) {
+	resourceURL, err := url.ParseRequestURI(resourceURI)
+	if err != nil {
+		return resourceIdentity{}, fmt.Errorf("RESOURCE_URI is not a valid URL: %w", err)
+	}
+	realm := getenvDefault("AUTH_REALM", resourceURL.Hostname())
+	if realm == "" {
+		return resourceIdentity{}, fmt.Errorf(
+			"AUTH_REALM is not set and RESOURCE_URI %q has no host to derive a realm from", resourceURI)
+	}
+	return resourceIdentity{
+		name:  getenvDefault("RESOURCE_NAME", "Grafana MCP Server"),
+		docs:  getenvDefault("RESOURCE_DOCUMENTATION", "https://github.com/c-premus/mcp-gate"),
+		realm: realm,
+	}, nil
 }
 
 // trustBoundaries groups the two settings that decide which network-level

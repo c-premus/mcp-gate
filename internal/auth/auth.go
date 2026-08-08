@@ -74,7 +74,7 @@ type Config struct {
 	ExpectedAudience string
 	RequiredScopes   []string
 	ResourceURI     string // Public URL for WWW-Authenticate resource_metadata
-	Realm           string // e.g. "grafana-mcp"
+	Realm           string // Protection space name; operator-supplied, sanitized at emit
 	ScopesSupported string // Space-separated scopes for WWW-Authenticate
 }
 

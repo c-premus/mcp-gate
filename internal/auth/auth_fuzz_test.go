@@ -8,8 +8,10 @@ import (
 
 // FuzzSanitizeQuotedString exercises the RFC 7235 quoted-string sanitizer with
 // adversarial header values. The function is the last line of defense against
-// header-splitting if a caller ever passes untrusted input into the
-// WWW-Authenticate realm/error_description/resource_metadata slots.
+// header-splitting in the WWW-Authenticate realm/error_description/
+// resource_metadata slots. The realm is operator-supplied via AUTH_REALM (or
+// derived from RESOURCE_URI), so these slots carry configured input rather than
+// compiled-in constants.
 //
 // Invariants enforced for every input:
 //
