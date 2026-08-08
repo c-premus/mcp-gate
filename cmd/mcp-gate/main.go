@@ -237,8 +237,8 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *
 	// is the resource's URI. Many OIDC providers (Authentik is one) emit
 	// aud=<client_id> instead, which is substantively correct but not literally
 	// the canonical URI. Log once at startup so operators who *can* configure
-	// aud=<RESOURCE_URI> on the AS side see the gap; those who can't (Authentik)
-	// can treat this as the documented trade-off captured in docs/spec.md.
+	// aud=<RESOURCE_URI> on the AS side see the gap; where the provider offers
+	// no such control, this is a documented trade-off rather than a defect.
 	if cfg.expectedAudience != cfg.resourceURI {
 		slog.Warn("audience not bound to canonical resource URI",
 			"expected_audience", cfg.expectedAudience,
@@ -398,11 +398,11 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *
 	// how you ask for it.
 	mux.HandleFunc(metadata.WellKnownPath+"/", http.NotFound)
 
-	// /healthz is reachable without authentication (Docker HEALTHCHECK, Traefik
-	// probes), so the response bodies are deliberately generic — the status
-	// code carries the signal. "jwks not ready" / subsystem-specific strings
-	// would fingerprint the product and telegraph Authentik outages to any
-	// unauthenticated probe.
+	// /healthz is reachable without authentication (container healthchecks and
+	// load-balancer probes), so the response bodies are deliberately generic —
+	// the status code carries the signal. "jwks not ready" / subsystem-specific
+	// strings would fingerprint the product and telegraph authorization-server
+	// outages to any unauthenticated probe.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if !authMW.IsReady(r.Context()) {
 			http.Error(w, "unavailable", http.StatusServiceUnavailable)
@@ -899,7 +899,7 @@ func loadResourceIdentity(resourceURI string) (resourceIdentity, error) {
 			"AUTH_REALM is not set and RESOURCE_URI %q has no host to derive a realm from", resourceURI)
 	}
 	return resourceIdentity{
-		name:  getenvDefault("RESOURCE_NAME", "Grafana MCP Server"),
+		name:  getenvDefault("RESOURCE_NAME", "MCP Server"),
 		docs:  getenvDefault("RESOURCE_DOCUMENTATION", "https://github.com/c-premus/mcp-gate"),
 		realm: realm,
 	}, nil

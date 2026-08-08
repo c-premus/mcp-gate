@@ -757,7 +757,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - fix: harden auth headers, JWKS context, and nosniff
 - fix: resolve golangci-lint errors
-- fix: correct Authentik URL to auth.example.com
+- fix: correct Authentik URL to example.com
 
 ### Maintenance
 

@@ -172,8 +172,9 @@ func New(upstreamURL *url.URL, tc TransportConfig) *httputil.ReverseProxy {
 			// stdlib (reverseproxy.go) already strips any CLIENT-supplied
 			// Forwarded / X-Forwarded-* headers from r.Out before Rewrite
 			// runs, so SetXForwarded cannot reflect client-controlled values
-			// — the outbound headers always reflect the direct peer (Traefik
-			// in production). No trusted-proxy gating needed here; realip
+			// — the outbound headers always reflect the direct peer (the
+			// fronting proxy, where one is deployed). No trusted-proxy
+			// gating needed here; realip
 			// handles the XFF walk separately for rate-limit keying and logs.
 			r.SetXForwarded()
 			r.Out.Header.Del("Authorization") // User JWT must not reach upstream
@@ -288,9 +289,9 @@ func New(upstreamURL *url.URL, tc TransportConfig) *httputil.ReverseProxy {
 			// buffering."
 			//
 			// mcp-gate does not buffer (FlushInterval: -1), but it is not the
-			// last proxy in the chain — Traefik and Cloudflare both sit between
-			// here and the client, and this header is the conventional signal
-			// to them. Setting it (rather than only forwarding upstream's) means
+			// last proxy in the chain — any edge proxy or CDN between here and
+			// the client buffers by default, and this header is the conventional
+			// signal to them. Setting it (rather than only forwarding upstream's) means
 			// the guarantee holds even when the upstream MCP server predates
 			// this requirement.
 			if isSSE {

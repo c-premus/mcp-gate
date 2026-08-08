@@ -1,8 +1,8 @@
 # Grafana alert rule provisioning for mcp-gate JWKS health.
 #
-# Copied into services/grafana/provisioning/alerting/mcp-gate.yaml on the
-# deploy host by .forgejo/workflows/deploy.yaml. The folder "mcp-gate" is
-# created automatically by Grafana at load time.
+# Copy into your Grafana provisioning directory (the alerting/ subdirectory)
+# and reload. The folder "mcp-gate" is created automatically by Grafana at
+# load time.
 #
 # These rules are provisioned without notification_settings — they use the
 # default notification policy (root route) of the Alertmanager configured in
@@ -82,8 +82,8 @@ groups:
           summary: mcp-gate has zero cached JWKS signing keys
           description: |
             mcp-gate cannot validate any JWT — all authenticated requests will
-            be rejected. Check the JWKS endpoint reachability, Authentik health,
-            and mcp-gate logs for JWKS fetch errors.
+            be rejected. Check the JWKS endpoint reachability, the
+            authorization server's health, and mcp-gate logs for fetch errors.
 
       # Warning: refresh failures are a liveness signal. The refresh goroutine
       # increments mcpgate_jwks_refresh_errors_total on every failure. A single
@@ -163,8 +163,8 @@ groups:
 
       # Warning: key set has not rotated in 90 days. The gauge is primed on
       # startup (auth.go:114) so this won't false-fire on a fresh container.
-      # If Authentik's signing key rotation schedule slips or the refresh is
-      # silently returning stale keys, this catches it.
+      # If the authorization server's signing-key rotation schedule slips, or
+      # the refresh is silently returning stale keys, this catches it.
       - uid: mcp-gate-jwks-keys-stale
         title: mcp-gate JWKS Keys Stale
         condition: C
@@ -229,7 +229,7 @@ groups:
           description: |
             The JWKS key set last changed more than 90 days ago. This may
             indicate a stuck refresh that is silently returning the same keys,
-            or a longer-than-expected Authentik key rotation cadence. The
+            or a longer-than-expected key rotation cadence. The
             mcpgate_jwks_refresh_errors_total counter covers the liveness
             side — this signal is about whether rotation is actually happening.
 
@@ -308,9 +308,9 @@ groups:
             path to the scrape target broken. All other mcp-gate alerts are
             effectively silenced until this is resolved.
 
-      # Warning: upstream (mcp-grafana) is returning 5xx for >10% of requests.
-      # Symptoms: service-account token rotation missed, mcp-grafana OOM,
-      # upstream Grafana unavailable. The status_code label comes from the
+      # Warning: the upstream MCP server is returning 5xx for >10% of requests.
+      # Symptoms: upstream credential rotation missed, upstream OOM, or the
+      # system it queries unavailable. The status_code label comes from the
       # proxy's ModifyResponse / ErrorHandler paths (see internal/proxy).
       - uid: mcp-gate-upstream-errors
         title: mcp-gate Upstream Error Ratio
@@ -380,13 +380,13 @@ groups:
           summary: mcp-gate upstream errors exceed 10%
           description: |
             More than 10% of proxied requests returned 5xx for 10 minutes.
-            Check mcp-grafana container health, the Grafana service-account
-            token in Vault, and Grafana itself. `clamp_min` on the denominator
+            Check the upstream MCP server's health and the credentials it
+            uses for its own backend. `clamp_min` on the denominator
             prevents division-by-zero flutter during low-traffic windows.
 
-      # Warning: invalid-token rate spike. Catches Authentik key rotation,
+      # Warning: invalid-token rate spike. Catches signing-key rotation,
       # EXPECTED_AUDIENCE drift, or a broken Claude.ai client — failure modes
-      # that JWKSRefreshErrorsTotal will NOT see (Authentik can reply 200 with
+      # that JWKSRefreshErrorsTotal will NOT see (the AS can reply 200 with
       # a changed keyset faster than mcp-gate polls).
       - uid: mcp-gate-auth-failures
         title: mcp-gate Auth Failure Burst
@@ -451,7 +451,7 @@ groups:
           summary: mcp-gate invalid-token rate exceeds 1/s
           description: |
             mcp-gate is rejecting more than 1 token per second as invalid for
-            10 minutes. Likely causes: Authentik signing-key rotation that
+            10 minutes. Likely causes: authorization-server signing-key rotation that
             mcp-gate hasn't refreshed yet, EXPECTED_AUDIENCE drift after a
             provider reconfig, or a misconfigured Claude.ai connector. Check
-            recent Authentik changes and the mcp-gate logs.
+            recent authorization-server changes and the mcp-gate logs.

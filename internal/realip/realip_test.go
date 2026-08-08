@@ -66,19 +66,19 @@ func TestExtract_TrustedProxy_XFF_Priority(t *testing.T) {
 
 func TestExtract_TrustedProxy_XRealIP_IsTrusted(t *testing.T) {
 	t.Parallel()
-	// Real-world Traefik scenario: Traefik sets X-Real-IP to cloudflared's
-	// IP (a trusted proxy) and X-Forwarded-For to the resolved real client.
+	// Two-hop edge scenario: an edge proxy sets X-Real-IP to the tunnel
+	// daemon's IP (a trusted proxy) and X-Forwarded-For to the resolved client.
 	// X-Real-IP must be skipped because it's a trusted proxy address.
 	trusted := mustParseCIDRs(t, []string{"172.20.0.0/16"})
 
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
-	r.RemoteAddr = "172.20.0.10:54321"          // Traefik
-	r.Header.Set("X-Real-Ip", "172.20.0.13")    // cloudflared (trusted)
-	r.Header.Set("X-Forwarded-For", "160.79.106.119") // real client
+	r.RemoteAddr = "172.20.0.10:54321"          // edge proxy
+	r.Header.Set("X-Real-Ip", "172.20.0.13")    // tunnel daemon (trusted)
+	r.Header.Set("X-Forwarded-For", "203.0.113.50") // resolved client
 
 	got := Extract(r, trusted)
-	if got != "160.79.106.119" {
-		t.Errorf("Extract = %q, want 160.79.106.119 (X-Real-IP is trusted proxy, use XFF)", got)
+	if got != "203.0.113.50" {
+		t.Errorf("Extract = %q, want 203.0.113.50 (X-Real-IP is trusted proxy, use XFF)", got)
 	}
 }
 

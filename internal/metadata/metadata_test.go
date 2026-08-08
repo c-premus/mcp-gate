@@ -24,8 +24,8 @@ func testMetadata() metadata.ProtectedResourceMetadata {
 		AuthorizationServers:   []string{"https://auth.example.com/application/o/mcp/"},
 		ScopesSupported:        []string{"openid", "profile"},
 		BearerMethodsSupported: []string{"header"},
-		ResourceName:           "Grafana MCP Server",
-		ResourceDocumentation:  "https://github.com/grafana/mcp-grafana",
+		ResourceName:           "Example MCP Server",
+		ResourceDocumentation:  "https://example.com/docs",
 	}
 }
 
@@ -60,8 +60,8 @@ func TestHandler_GET_ValidJSON(t *testing.T) {
 	if len(got.AuthorizationServers) != 1 || got.AuthorizationServers[0] != "https://auth.example.com/application/o/mcp/" {
 		t.Errorf("authorization_servers = %v, unexpected", got.AuthorizationServers)
 	}
-	if got.ResourceName != "Grafana MCP Server" {
-		t.Errorf("resource_name = %q, want %q", got.ResourceName, "Grafana MCP Server")
+	if got.ResourceName != "Example MCP Server" {
+		t.Errorf("resource_name = %q, want %q", got.ResourceName, "Example MCP Server")
 	}
 }
 

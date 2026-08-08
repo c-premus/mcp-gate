@@ -597,8 +597,8 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if len(cfg.scopesSupported) != 2 || cfg.scopesSupported[0] != "openid" || cfg.scopesSupported[1] != "profile" {
 		t.Errorf("scopesSupported = %v, want [openid profile]", cfg.scopesSupported)
 	}
-	if cfg.resourceName != "Grafana MCP Server" {
-		t.Errorf("resourceName = %q", cfg.resourceName)
+	if cfg.resourceName != "MCP Server" {
+		t.Errorf("resourceName = %q, want MCP Server", cfg.resourceName)
 	}
 	if cfg.resourceDocs != "https://github.com/c-premus/mcp-gate" {
 		t.Errorf("resourceDocs = %q, want https://github.com/c-premus/mcp-gate", cfg.resourceDocs)
@@ -1742,9 +1742,9 @@ func TestHealthcheckURL(t *testing.T) {
 		{"ipv6 wildcard maps to localhost", "[::]:8080", "http://localhost:8080/healthz", false},
 		{"empty host maps to localhost", ":8080", "http://localhost:8080/healthz", false},
 		{"loopback is dialed as-is", "127.0.0.1:9090", "http://127.0.0.1:9090/healthz", false},
-		// The production bind address. Mapping this to localhost would make the
-		// container healthcheck fail forever and trip a deploy rollback, so this
-		// case is the regression healthcheckURL exists to protect.
+		// A concrete (non-wildcard) bind address, as used on bridge networks.
+		// Mapping this to localhost would make the container healthcheck fail
+		// forever, so this case is the regression healthcheckURL exists to protect.
 		{"concrete IP is dialed as-is", "172.20.0.133:8080", "http://172.20.0.133:8080/healthz", false},
 		// Proves net.JoinHostPort re-brackets the IPv6 literal SplitHostPort stripped.
 		{"ipv6 literal is re-bracketed", "[fd00::1]:8080", "http://[fd00::1]:8080/healthz", false},

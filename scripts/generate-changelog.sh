@@ -69,6 +69,11 @@ format_line() {
   # public side. The per-version compare links in the footer still resolve
   # correctly because tags survive the rewrite.
   local hash="$1" subject="$2"
+  # Redact deployment hostnames. Subjects are author-controlled prose that ships
+  # verbatim to the public mirror, so a commit naming an internal host would
+  # leak it into CHANGELOG.md on the next regeneration. Doing this here — the
+  # single point every subject passes through — keeps it out of every section.
+  subject=$(printf '%s' "$subject" | sed -E 's#[A-Za-z0-9.-]*999\.haus#example.com#g')
   printf -- '- %s\n' "$subject"
 }
 

@@ -13,9 +13,10 @@ FROM gcr.io/distroless/static-debian12@sha256:9c346e4be81b5ca7ff31a0d89eaeade58b
 COPY --from=builder /mcp-gate /mcp-gate
 USER 65534:65534
 EXPOSE 8080 9090
-# start-period lets the process initialize (JWKS fetch + Authentik cold start)
-# without the first few healthcheck failures counting toward the retry budget,
-# preventing deploy.yaml from rolling back on a slow-but-legitimate startup.
+# start-period lets the process initialize (the blocking JWKS fetch, plus any
+# cold start on the authorization server) without the first few healthcheck
+# failures counting toward the retry budget, so a slow-but-legitimate startup
+# does not mark the container unhealthy and trip an orchestrator rollback.
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=30s \
   CMD ["/mcp-gate", "healthcheck"]
 ENTRYPOINT ["/mcp-gate"]
