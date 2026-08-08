@@ -18,6 +18,32 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 )
 
+// defaultTracesPath is the OTLP/HTTP request path for the traces signal.
+const defaultTracesPath = "/v1/traces"
+
+// tracesEndpointURL fills in the OTLP traces path when the operator supplied
+// only an origin.
+//
+// mcp-gate's knob is OTEL_EXPORTER_OTLP_ENDPOINT — the *generic* endpoint
+// variable, which the OTLP specification says the per-signal path is appended
+// to (unlike OTEL_EXPORTER_OTLP_TRACES_ENDPOINT, which is used verbatim).
+// otlptracehttp.WithEndpointURL takes the URL's path verbatim either way and
+// applies no such default, so the documented "http://collector:4318" form
+// exported to "/" and every batch came back 404 — silently, because a failed
+// export is reported through the OTEL error handler and never touches the
+// mcpgate_otel_spans_dropped_total counter (see the note in Setup).
+//
+// An endpoint that already carries a path is left alone, so an operator can
+// still point at a collector mounted somewhere non-standard.
+func tracesEndpointURL(endpoint string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil || (u.Path != "" && u.Path != "/") {
+		return endpoint
+	}
+	u.Path = defaultTracesPath
+	return u.String()
+}
+
 // Config holds OTEL tracing configuration.
 type Config struct {
 	Endpoint    string  // OTLP HTTP endpoint (e.g. "http://alloy:4318"). Empty = disabled.
@@ -38,14 +64,16 @@ func Setup(ctx context.Context, cfg Config) (*Provider, error) {
 		return &Provider{}, nil
 	}
 
+	endpoint := tracesEndpointURL(cfg.Endpoint)
+
 	opts := []otlptracehttp.Option{
-		otlptracehttp.WithEndpointURL(cfg.Endpoint),
+		otlptracehttp.WithEndpointURL(endpoint),
 	}
 	// Parse the endpoint and compare the normalized scheme. strings.HasPrefix
 	// on "http://" would miss "HTTP://" and fall through to TLS — which then
 	// fails to negotiate against a plain-HTTP collector with an opaque error.
 	// url.Parse lowercases the scheme so the comparison is stable.
-	if u, err := url.Parse(cfg.Endpoint); err == nil && u.Scheme == "http" {
+	if u, err := url.Parse(endpoint); err == nil && u.Scheme == "http" {
 		opts = append(opts, otlptracehttp.WithInsecure())
 	}
 
