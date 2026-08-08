@@ -15,10 +15,12 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/c-premus/mcp-gate/internal/metrics"
@@ -226,11 +228,19 @@ func New(upstreamURL *url.URL, tc TransportConfig) *httputil.ReverseProxy {
 				return
 			}
 
+			// Log a classified category rather than err.Error(): the raw
+			// transport error embeds internal topology (upstream IP and port
+			// for dial failures, the full outbound URL for *url.Error), which
+			// would then land in Loki. The category plus the 502 counter is
+			// enough to diagnose; the raw error is kept at Debug for local
+			// troubleshooting.
+			category := classifyProxyError(err)
 			slog.Error("upstream proxy error",
 				"method", r.Method,
 				"path", r.URL.Path,
-				"error", err,
+				"category", category,
 			)
+			slog.Debug("upstream proxy error (detail)", "category", category, "error", err)
 			metrics.ProxyRequestsTotal.WithLabelValues("502").Inc()
 
 			w.Header().Set("Content-Type", "application/json")
@@ -301,5 +311,49 @@ func New(upstreamURL *url.URL, tc TransportConfig) *httputil.ReverseProxy {
 
 			return nil
 		},
+	}
+}
+
+// classifyProxyError maps a reverse-proxy transport error to a fixed-cardinality
+// category string safe to log at Error level. The raw error embeds internal
+// topology — `dial tcp 10.0.0.7:8000: connect: connection refused` names the
+// upstream address, and *url.Error carries the full outbound URL — which must
+// not reach Loki. The default arm bounds cardinality.
+//
+// Order matters: *net.DNSError and the syscall errnos are checked BEFORE the
+// generic net.Error.Timeout() arm, because a DNS lookup that timed out is both
+// a *net.DNSError and a net.Error reporting Timeout() == true; classifying it
+// as "timeout" would hide a resolver outage behind a generic slow-upstream
+// category.
+//
+// This runs on the upstream-failure path, i.e. exactly when the proxy is
+// already degraded, so it never dereferences anything: a panic here would turn
+// a 502 into a crash. errors.As on a nil target pointer is safe.
+func classifyProxyError(err error) string {
+	var dnsErr *net.DNSError
+	var netErr net.Error
+
+	switch {
+	case err == nil:
+		return "none"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.As(err, &dnsErr):
+		return "dns_failure"
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return "connection_refused"
+	case errors.Is(err, syscall.ECONNRESET):
+		return "connection_reset"
+	case errors.Is(err, net.ErrClosed):
+		return "connection_closed"
+	case errors.Is(err, io.ErrUnexpectedEOF):
+		return "unexpected_eof"
+	case errors.Is(err, context.DeadlineExceeded),
+		errors.Is(err, os.ErrDeadlineExceeded):
+		return "timeout"
+	case errors.As(err, &netErr) && netErr.Timeout():
+		return "timeout"
+	default:
+		return "other"
 	}
 }

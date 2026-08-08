@@ -2,8 +2,10 @@ package proxy_test
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -227,6 +229,15 @@ func TestErrorHandlerNoInternalHostnames(t *testing.T) {
 	}))
 	defer upstream.Close()
 
+	// The log surface matters as much as the response body: the raw transport
+	// error names the upstream host:port, and that line ships to Loki.
+	// JSON handler with nil options defaults to Info level, so the Debug
+	// "detail" line carrying the raw error is deliberately not captured.
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
 	p := proxy.New(mustParseURL(t, upstream.URL), proxy.DefaultTransportConfig())
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
 	w := httptest.NewRecorder()
@@ -236,6 +247,60 @@ func TestErrorHandlerNoInternalHostnames(t *testing.T) {
 	body := w.Body.String()
 	if strings.Contains(body, "127.0.0.1") || strings.Contains(body, "localhost") {
 		t.Errorf("error body leaks internal hostnames: %s", body)
+	}
+
+	logged := buf.String()
+	for _, unwanted := range []string{"127.0.0.1", "localhost"} {
+		if strings.Contains(logged, unwanted) {
+			t.Errorf("log leaks internal hostname %q\n  got: %s", unwanted, logged)
+		}
+	}
+}
+
+// TestErrorHandlerLogsNoUpstreamAddress pins the F15 log-surface fix: the
+// Error-level line carries a bounded "category" field instead of the raw
+// transport error, so upstream IPs, ports, and dial syntax never reach Loki.
+//
+// The exact category is deliberately NOT asserted here. A 1ns dial produces a
+// platform- and Go-version-dependent error shape (i/o timeout vs. connection
+// refused vs. a bare context deadline), so pinning the value would make this
+// test flaky. Exact values are covered by TestClassifyProxyError with
+// synthetic errors.
+//
+// slog.NewJSONHandler(&buf, nil) defaults to Info level, so the slog.Debug
+// "upstream proxy error (detail)" line — the only place the raw error still
+// appears — is not captured. That absence is itself the assertion: the raw
+// error is Debug-only, reachable via LOG_LEVEL=debug.
+func TestErrorHandlerLogsNoUpstreamAddress(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	tc := proxy.DefaultTransportConfig()
+	tc.DialTimeout = time.Nanosecond // Force ErrorHandler
+
+	// RFC 5737 TEST-NET-1 — guaranteed non-routable.
+	p := proxy.New(mustParseURL(t, "http://192.0.2.1:1"), tc)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
+	w := httptest.NewRecorder()
+
+	p.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d", w.Code)
+	}
+
+	logged := buf.String()
+	for _, want := range []string{"upstream proxy error", "category"} {
+		if !strings.Contains(logged, want) {
+			t.Errorf("log missing %q\n  got: %s", want, logged)
+		}
+	}
+	for _, unwanted := range []string{"192.0.2.1", "dial tcp", "connect:"} {
+		if strings.Contains(logged, unwanted) {
+			t.Errorf("log leaks transport detail %q\n  got: %s", unwanted, logged)
+		}
 	}
 }
 
