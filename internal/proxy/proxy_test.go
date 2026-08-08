@@ -140,6 +140,70 @@ func TestAccessTokenQueryParamStripped(t *testing.T) {
 	}
 }
 
+// TestAccessTokenQueryParamSignalled covers the operator-facing half of the
+// strip: because the request still succeeds, the counter and the Warn line are
+// the only way anyone learns a connector is putting bearer tokens in URLs
+// (RFC 6750 §2.3). The log must name the method and path but never the token.
+func TestAccessTokenQueryParamSignalled(t *testing.T) {
+	upstream := echoUpstream()
+	defer upstream.Close()
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	before := counterValue(t, metrics.DeprecatedAccessTokenQueryTotal)
+
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "/test?access_token=secret&foo=bar", http.NoBody)
+	echo := doProxyEcho(t, upstream, req)
+
+	if got := counterValue(t, metrics.DeprecatedAccessTokenQueryTotal); got != before+1 {
+		t.Errorf("DeprecatedAccessTokenQueryTotal = %v, want %v", got, before+1)
+	}
+
+	logged := buf.String()
+	if !strings.Contains(logged, "deprecated access_token query parameter") {
+		t.Errorf("log missing deprecation warning\n  got: %s", logged)
+	}
+	// The whole point of the signal is that it does not itself leak the token.
+	if strings.Contains(logged, "secret") {
+		t.Errorf("log leaks the access_token value\n  got: %s", logged)
+	}
+	if !strings.Contains(echo.URL, "foo=bar") {
+		t.Errorf("other params should still reach upstream: got %q", echo.URL)
+	}
+}
+
+// TestAccessTokenQueryParamAbsentNoSignal proves the Has() guard: an ordinary
+// request must not increment the counter or emit the warning. Without this,
+// an unconditional Inc/log would fire on every request and the metric would be
+// useless.
+func TestAccessTokenQueryParamAbsentNoSignal(t *testing.T) {
+	upstream := echoUpstream()
+	defer upstream.Close()
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	before := counterValue(t, metrics.DeprecatedAccessTokenQueryTotal)
+
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "/test?foo=bar", http.NoBody)
+	echo := doProxyEcho(t, upstream, req)
+
+	if got := counterValue(t, metrics.DeprecatedAccessTokenQueryTotal); got != before {
+		t.Errorf("DeprecatedAccessTokenQueryTotal = %v, want unchanged %v", got, before)
+	}
+	if logged := buf.String(); strings.Contains(logged, "deprecated") {
+		t.Errorf("unexpected deprecation warning for a clean request\n  got: %s", logged)
+	}
+	if !strings.Contains(echo.URL, "foo=bar") {
+		t.Errorf("params should be preserved: got %q", echo.URL)
+	}
+}
+
 func TestXForwardedForSet(t *testing.T) {
 	upstream := echoUpstream()
 	defer upstream.Close()

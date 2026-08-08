@@ -197,6 +197,29 @@ var (
 		Help:    "Upstream response body size in bytes (observed at body close).",
 		Buckets: []float64{1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216, 67108864},
 	})
+
+	// proxy request hygiene ------------------------------------------------------
+	// Deprecated or non-conformant client behaviour that mcp-gate corrects
+	// transparently. The request still succeeds, so a counter is the only way an
+	// operator learns the correction is happening at all.
+
+	// DeprecatedAccessTokenQueryTotal counts requests that arrived with an
+	// access_token query parameter. RFC 6750 §2.3 deprecates the URI query
+	// method (and MCP 2026-07-28 disallows it outright) because the token then
+	// lands in access logs, Referer headers, and browser history. mcp-gate
+	// strips the parameter before proxying, which means the request succeeds
+	// and the client never learns it is leaking tokens — this counter is what
+	// tells the operator a connector needs fixing.
+	//
+	// Unlabelled on purpose, same reasoning as OriginRejectedTotal: the only
+	// candidate labels are the client identity (unbounded) and the token value
+	// (a secret that must never enter a metric). Diagnosis goes through the
+	// paired "deprecated access_token query parameter" Warn log line, which
+	// carries method and path — never the query string.
+	DeprecatedAccessTokenQueryTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "mcpgate_deprecated_access_token_query_total",
+		Help: "Requests received with a deprecated access_token query parameter, stripped before proxying.",
+	})
 )
 
 // Server serves Prometheus metrics and a health check on a separate port.

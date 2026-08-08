@@ -186,10 +186,30 @@ func New(upstreamURL *url.URL, tc TransportConfig) *httputil.ReverseProxy {
 			r.In.Header.Del("Authorization")
 			r.In.Header.Del("Cookie")
 
-			// Strip access_token from query params to prevent log leakage
-			q := r.Out.URL.Query()
-			q.Del("access_token")
-			r.Out.URL.RawQuery = q.Encode()
+			// Strip access_token from query params to prevent log leakage.
+			// RFC 6750 §2.3 deprecates the URI query method and MCP
+			// 2026-07-28 disallows it; stripping alone is silent, so signal
+			// receipt too — the request still succeeds, and the counter plus
+			// Warn line are the only way an operator learns a connector is
+			// putting bearer tokens in URLs.
+			//
+			// Guarding on Has() also keeps this off the hot path: Rewrite runs
+			// on every proxied request, and re-encoding RawQuery when there is
+			// nothing to remove is pure waste (see
+			// docs/audit/2026-04-22-go-idioms.md:203).
+			//
+			// Log method and path only — never RawQuery, never the parameter
+			// value. Echoing the token into the log line is the exact leak
+			// this signal exists to report.
+			if q := r.Out.URL.Query(); q.Has("access_token") {
+				slog.Warn("deprecated access_token query parameter",
+					"method", r.In.Method,
+					"path", r.In.URL.Path,
+				)
+				metrics.DeprecatedAccessTokenQueryTotal.Inc()
+				q.Del("access_token")
+				r.Out.URL.RawQuery = q.Encode()
+			}
 
 			// Store start time for duration tracking on r.Out.
 			// httputil.ReverseProxy passes pr.Out (as outreq) to both ErrorHandler
