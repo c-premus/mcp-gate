@@ -91,7 +91,7 @@ func defaultTestConfig(jwksURL, upstreamURL string) runConfig {
 		sseIdleTimeout:      5 * time.Minute,
 		readTimeout:         30 * time.Second,
 		idleTimeout:         120 * time.Second,
-		maxHeaderBytes:      65536,
+		maxHeaderBytes:      131072,
 	}
 }
 
@@ -608,8 +608,8 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if cfg.idleTimeout != 120*time.Second {
 		t.Errorf("idleTimeout = %v, want 120s", cfg.idleTimeout)
 	}
-	if cfg.maxHeaderBytes != 65536 {
-		t.Errorf("maxHeaderBytes = %d, want 65536", cfg.maxHeaderBytes)
+	if cfg.maxHeaderBytes != 131072 {
+		t.Errorf("maxHeaderBytes = %d, want 131072", cfg.maxHeaderBytes)
 	}
 }
 

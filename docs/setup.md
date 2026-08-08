@@ -104,7 +104,7 @@ In many providers, the issuer URL and the authorization server URL are the same 
 | `UPSTREAM_TIMEOUT` | `120s` | Time to wait for first upstream response byte |
 | `READ_TIMEOUT` | `30s` | Inbound request read timeout |
 | `IDLE_TIMEOUT` | `120s` | Keep-alive idle timeout |
-| `MAX_HEADER_BYTES` | `65536` | Max request header size in bytes (64 KB) |
+| `MAX_HEADER_BYTES` | `131072` | Max request header size in bytes (128 KB) |
 
 **Timeout notes**: MCP connections are long-lived (SSE/streamable-http). `UPSTREAM_TIMEOUT` controls how long mcp-gate waits for the upstream MCP server to send the first response byte — complex queries (e.g., PromQL range queries over weeks of data) may need the full 120s default. `IDLE_TIMEOUT` controls how long idle keep-alive connections stay open between MCP tool calls.
 

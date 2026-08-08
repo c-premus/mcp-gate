@@ -704,7 +704,7 @@ func loadConfig() (runConfig, error) {
 		return runConfig{}, err
 	}
 
-	maxHeaderBytes, err := getenvInt("MAX_HEADER_BYTES", "65536")
+	maxHeaderBytes, err := getenvInt("MAX_HEADER_BYTES", "131072")
 	if err != nil {
 		return runConfig{}, err
 	}
