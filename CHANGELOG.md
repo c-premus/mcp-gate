@@ -8,6 +8,16 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.19.1] - 2026-08-08
+
+### Fixes
+
+- fix(dashboard): populate the option blocks Grafana renders from
+
+### Maintenance
+
+- chore(deps): update dependency tsx to v4.23.8 (#192)
+
 ## [0.19.0] - 2026-08-08
 
 ### Features
@@ -18,6 +28,10 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - fix(otel): append the OTLP signal path to an origin-only endpoint
 - fix(alerts): make rules multi-gate aware
+
+### Maintenance
+
+- chore(changelog): update for v0.19.0
 
 ## [0.18.2] - 2026-08-08
 
@@ -793,6 +807,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.19.1]: https://github.com/c-premus/mcp-gate/compare/v0.19.0...v0.19.1
 [0.19.0]: https://github.com/c-premus/mcp-gate/compare/v0.18.2...v0.19.0
 [0.18.2]: https://github.com/c-premus/mcp-gate/compare/v0.18.1...v0.18.2
 [0.18.1]: https://github.com/c-premus/mcp-gate/compare/v0.18.0...v0.18.1
