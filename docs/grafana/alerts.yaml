@@ -7,7 +7,18 @@
 # These rules are provisioned without notification_settings — they use the
 # default notification policy (root route) of the Alertmanager configured in
 # Grafana. Add routing to the Alertmanager config tree to target them via the
-# severity / service labels below.
+# severity label below.
+#
+# Multi-gate deployments: these rules deliberately carry NO `service` label of
+# their own. Grafana applies rule-level labels on top of the query's labels, so
+# a hardcoded `service` would overwrite the one the scrape config attaches and
+# every gate's alerts would be attributed to the same instance. Instead, each
+# rule aggregates `by (service)` and templates `$labels.service` into its
+# summary, so one job scraping several gates produces one correctly-named alert
+# instance per gate. See docs/setup.md ("Scraping several gates") for the
+# scrape-config contract that supplies the label. If your scrape config does
+# not set `service`, the label is simply absent and the summaries fall back to
+# a generic "mcp-gate" — identical to single-gate behaviour.
 
 apiVersion: 1
 
@@ -77,9 +88,10 @@ groups:
         for: 5m
         labels:
           severity: critical
-          service: mcp-gate
         annotations:
-          summary: mcp-gate has zero cached JWKS signing keys
+          summary: >-
+            {{ if $labels.service }}{{ $labels.service }}{{ else }}mcp-gate{{ end }}
+            has zero cached JWKS signing keys
           description: |
             mcp-gate cannot validate any JWT — all authenticated requests will
             be rejected. Check the JWKS endpoint reachability, the
@@ -152,9 +164,10 @@ groups:
         for: 5m
         labels:
           severity: warning
-          service: mcp-gate
         annotations:
-          summary: mcp-gate JWKS refresh is failing
+          summary: >-
+            {{ if $labels.service }}{{ $labels.service }}{{ else }}mcp-gate{{ end }}
+            JWKS refresh is failing
           description: |
             The JWKS refresh goroutine reported one or more failures in the last
             15 minutes. Cached keys may still be serving validations, but the
@@ -223,9 +236,10 @@ groups:
         for: 1h
         labels:
           severity: warning
-          service: mcp-gate
         annotations:
-          summary: mcp-gate JWKS key set has not rotated in 90+ days
+          summary: >-
+            {{ if $labels.service }}{{ $labels.service }}{{ else }}mcp-gate{{ end }}
+            JWKS key set has not rotated in 90+ days
           description: |
             The JWKS key set last changed more than 90 days ago. This may
             indicate a stuck refresh that is silently returning the same keys,
@@ -299,9 +313,10 @@ groups:
         for: 5m
         labels:
           severity: critical
-          service: mcp-gate
         annotations:
-          summary: mcp-gate Prometheus target is down
+          summary: >-
+            {{ if $labels.service }}{{ $labels.service }}{{ else }}mcp-gate{{ end }}
+            Prometheus target is down
           description: |
             Prometheus has not scraped mcp-gate for at least 5 minutes. The
             container may be crashed, the metrics port blocked, or the network
@@ -324,9 +339,9 @@ groups:
             model:
               refId: A
               expr: |
-                sum(rate(mcpgate_proxy_requests_total{job="mcp-gate",status_code=~"5.."}[5m]))
+                sum by (service) (rate(mcpgate_proxy_requests_total{job="mcp-gate",status_code=~"5.."}[5m]))
                 /
-                clamp_min(sum(rate(mcpgate_proxy_requests_total{job="mcp-gate"}[5m])), 0.001)
+                clamp_min(sum by (service) (rate(mcpgate_proxy_requests_total{job="mcp-gate"}[5m])), 0.001)
               intervalMs: 1000
               maxDataPoints: 43200
               datasource:
@@ -375,9 +390,10 @@ groups:
         for: 10m
         labels:
           severity: warning
-          service: mcp-gate
         annotations:
-          summary: mcp-gate upstream errors exceed 10%
+          summary: >-
+            {{ if $labels.service }}{{ $labels.service }}{{ else }}mcp-gate{{ end }}
+            upstream errors exceed 10%
           description: |
             More than 10% of proxied requests returned 5xx for 10 minutes.
             Check the upstream MCP server's health and the credentials it
@@ -399,7 +415,7 @@ groups:
             datasourceUid: prometheus
             model:
               refId: A
-              expr: sum(rate(mcpgate_auth_validations_total{job="mcp-gate",outcome="invalid_token"}[5m]))
+              expr: sum by (service) (rate(mcpgate_auth_validations_total{job="mcp-gate",outcome="invalid_token"}[5m]))
               intervalMs: 1000
               maxDataPoints: 43200
               datasource:
@@ -446,9 +462,10 @@ groups:
         for: 10m
         labels:
           severity: warning
-          service: mcp-gate
         annotations:
-          summary: mcp-gate invalid-token rate exceeds 1/s
+          summary: >-
+            {{ if $labels.service }}{{ $labels.service }}{{ else }}mcp-gate{{ end }}
+            invalid-token rate exceeds 1/s
           description: |
             mcp-gate is rejecting more than 1 token per second as invalid for
             10 minutes. Likely causes: authorization-server signing-key rotation that
