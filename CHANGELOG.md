@@ -8,6 +8,12 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.18.2] - 2026-08-08
+
+### Maintenance
+
+- chore(deps): update dependency tsx to v4.23.7 (#191)
+
 ## [0.18.1] - 2026-08-08
 
 ### Fixes
@@ -16,6 +22,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 ### Maintenance
 
+- chore(changelog): update for v0.18.1
 - chore(deps): update dependency tsx to v4.23.6 (#190)
 
 ## [0.18.0] - 2026-08-08
@@ -774,6 +781,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.18.2]: https://github.com/c-premus/mcp-gate/compare/v0.18.1...v0.18.2
 [0.18.1]: https://github.com/c-premus/mcp-gate/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/c-premus/mcp-gate/compare/v0.17.5...v0.18.0
 [0.17.5]: https://github.com/c-premus/mcp-gate/compare/v0.17.4...v0.17.5
