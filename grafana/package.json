@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "generate": "npx tsx src/generate.ts",
+    "validate": "npx tsx src/validate-file.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

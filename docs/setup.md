@@ -255,6 +255,8 @@ Provisioning artifacts ship in the repo:
 
 The dashboard is generated — edit the TypeScript under `grafana/src/` and run `npm run generate`, rather than editing the JSON. CI fails if the committed JSON does not match its source.
 
+Build panels with the factories in `grafana/src/panels/defaults.ts`, not with the SDK's `PanelBuilder` classes directly. The SDK seeds several required option fields as *explicitly empty* rather than absent — `reduceOptions.calcs: []`, `legend.showLegend: false` — and Grafana honours an empty field instead of falling back to its default, so the panel loads without error and renders nothing. `npm run generate` validates the dashboard before writing it and refuses to emit one that has an empty reducer, a hidden legend on a per-gate panel, a missing unit, or a `gridPos` that overflows or overlaps; `npm run validate` runs the same rules against the committed JSON.
+
 ## Troubleshooting
 
 ### mcp-gate fails to start
