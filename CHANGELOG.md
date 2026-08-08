@@ -8,10 +8,27 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.18.0] - 2026-08-08
+
+### Features
+
+- feat(proxy): count and log deprecated access_token query parameter
+
+### Fixes
+
+- fix(otel): bump semconv to v1.43.0 to match OTEL SDK v1.45.0
+- fix(deps): update go dependencies
+- fix(proxy): log bounded error category instead of raw upstream error
+
+### Maintenance
+
+- chore(config): raise MAX_HEADER_BYTES default to 128 KiB
+
 ## [0.17.5] - 2026-08-06
 
 ### Maintenance
 
+- chore(changelog): update for v0.17.5
 - chore(deps): update dependency tsx to v4.23.5 (#188)
 - chore(deps): update dependency tsx to v4.23.4 (#187)
 
@@ -746,6 +763,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.18.0]: https://github.com/c-premus/mcp-gate/compare/v0.17.5...v0.18.0
 [0.17.5]: https://github.com/c-premus/mcp-gate/compare/v0.17.4...v0.17.5
 [0.17.4]: https://github.com/c-premus/mcp-gate/compare/v0.17.3...v0.17.4
 [0.17.3]: https://github.com/c-premus/mcp-gate/compare/v0.17.2...v0.17.3
