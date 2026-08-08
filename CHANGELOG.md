@@ -8,6 +8,16 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.18.1] - 2026-08-08
+
+### Fixes
+
+- fix(config): derive realm from RESOURCE_URI, make resource_documentation configurable
+
+### Maintenance
+
+- chore(deps): update dependency tsx to v4.23.6 (#190)
+
 ## [0.18.0] - 2026-08-08
 
 ### Features
@@ -22,6 +32,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 ### Maintenance
 
+- chore(changelog): update for v0.18.0
 - chore(config): raise MAX_HEADER_BYTES default to 128 KiB
 
 ## [0.17.5] - 2026-08-06
@@ -763,6 +774,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.18.1]: https://github.com/c-premus/mcp-gate/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/c-premus/mcp-gate/compare/v0.17.5...v0.18.0
 [0.17.5]: https://github.com/c-premus/mcp-gate/compare/v0.17.4...v0.17.5
 [0.17.4]: https://github.com/c-premus/mcp-gate/compare/v0.17.3...v0.17.4
