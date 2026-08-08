@@ -10,18 +10,14 @@ import {
   ThresholdsMode,
   FieldColorModeId,
 } from "@grafana/grafana-foundation-sdk/dashboard";
-import {
-  BigValueColorMode,
-  VizTooltipOptionsBuilder,
-  TooltipDisplayMode,
-  SortOrder,
-} from "@grafana/grafana-foundation-sdk/common";
+import { BigValueColorMode } from "@grafana/grafana-foundation-sdk/common";
 import type * as cog from "@grafana/grafana-foundation-sdk/cog";
 import type * as dashboard from "@grafana/grafana-foundation-sdk/dashboard";
 import { PROMETHEUS, SELECTOR } from "./constants";
+import { piechartPanel, statPanel, timeseriesPanel } from "./defaults";
 
 function validAuthStat(): StatPanel {
-  return new StatPanel()
+  return statPanel()
     .title("Valid Auth")
     .description("Successful JWT validations per second, per gate")
     .datasource(PROMETHEUS)
@@ -42,7 +38,7 @@ function validAuthStat(): StatPanel {
 }
 
 function noTokenStat(): StatPanel {
-  return new StatPanel()
+  return statPanel()
     .title("No Token")
     .description("Requests without Bearer token per second, per gate")
     .datasource(PROMETHEUS)
@@ -71,7 +67,7 @@ function noTokenStat(): StatPanel {
 }
 
 function invalidTokenStat(): StatPanel {
-  return new StatPanel()
+  return statPanel()
     .title("Invalid Token")
     .description("Invalid/expired token rejections per second, per gate")
     .datasource(PROMETHEUS)
@@ -100,7 +96,7 @@ function invalidTokenStat(): StatPanel {
 }
 
 function insufficientScopeStat(): StatPanel {
-  return new StatPanel()
+  return statPanel()
     .title("Insufficient Scope")
     .description("Scope-check failures per second, per gate")
     .datasource(PROMETHEUS)
@@ -129,16 +125,11 @@ function insufficientScopeStat(): StatPanel {
 }
 
 function authFailureTimeseries(): TimeseriesPanel {
-  return new TimeseriesPanel()
+  return timeseriesPanel()
     .title("Auth Failure Rate")
     .description("Authentication failures over time by outcome, per gate")
     .datasource(PROMETHEUS)
     .unit("reqps")
-    .tooltip(
-      new VizTooltipOptionsBuilder()
-        .mode(TooltipDisplayMode.Multi)
-        .sort(SortOrder.Descending)
-    )
     .span(12)
     .height(8)
     .withTarget(
@@ -152,10 +143,13 @@ function authFailureTimeseries(): TimeseriesPanel {
 }
 
 function authOutcomePiechart(): PiechartPanel {
-  return new PiechartPanel()
+  return piechartPanel()
     .title("Auth Outcomes")
     .description("Distribution of authentication outcomes over the selected time range, per gate")
     .datasource(PROMETHEUS)
+    // Counts, not a rate: the query is a range-wide `increase`.
+    .unit("short")
+    .noValue("0")
     .span(12)
     .height(8)
     .withTarget(

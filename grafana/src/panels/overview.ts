@@ -9,18 +9,14 @@ import {
   ThresholdsMode,
   FieldColorModeId,
 } from "@grafana/grafana-foundation-sdk/dashboard";
-import {
-  BigValueColorMode,
-  VizTooltipOptionsBuilder,
-  TooltipDisplayMode,
-  SortOrder,
-} from "@grafana/grafana-foundation-sdk/common";
+import { BigValueColorMode } from "@grafana/grafana-foundation-sdk/common";
 import type * as cog from "@grafana/grafana-foundation-sdk/cog";
 import type * as dashboard from "@grafana/grafana-foundation-sdk/dashboard";
 import { PROMETHEUS, SELECTOR } from "./constants";
+import { statPanel, timeseriesPanel } from "./defaults";
 
 function requestRateStat(): StatPanel {
-  return new StatPanel()
+  return statPanel()
     .title("Request Rate")
     .description("Requests per second, per gate")
     .datasource(PROMETHEUS)
@@ -39,7 +35,7 @@ function requestRateStat(): StatPanel {
 }
 
 function errorRateStat(): StatPanel {
-  return new StatPanel()
+  return statPanel()
     .title("Error Rate")
     .description("5xx responses as percentage of total, per gate")
     .datasource(PROMETHEUS)
@@ -69,7 +65,7 @@ function errorRateStat(): StatPanel {
 }
 
 function p95LatencyStat(): StatPanel {
-  return new StatPanel()
+  return statPanel()
     .title("P95 Latency")
     .description("95th percentile request latency, per gate")
     .datasource(PROMETHEUS)
@@ -99,16 +95,11 @@ function p95LatencyStat(): StatPanel {
 }
 
 function requestRateTimeseries(): TimeseriesPanel {
-  return new TimeseriesPanel()
+  return timeseriesPanel()
     .title("Request Rate by Status")
     .description("HTTP request rate broken down by status code, per gate")
     .datasource(PROMETHEUS)
     .unit("reqps")
-    .tooltip(
-      new VizTooltipOptionsBuilder()
-        .mode(TooltipDisplayMode.Multi)
-        .sort(SortOrder.Descending)
-    )
     .span(12)
     .height(8)
     .withTarget(
@@ -122,16 +113,11 @@ function requestRateTimeseries(): TimeseriesPanel {
 }
 
 function latencyTimeseries(): TimeseriesPanel {
-  return new TimeseriesPanel()
+  return timeseriesPanel()
     .title("Request Latency Percentiles")
     .description("P50, P90, P99 request latency, per gate")
     .datasource(PROMETHEUS)
     .unit("s")
-    .tooltip(
-      new VizTooltipOptionsBuilder()
-        .mode(TooltipDisplayMode.Multi)
-        .sort(SortOrder.Descending)
-    )
     .span(12)
     .height(8)
     .withTarget(

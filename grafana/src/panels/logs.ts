@@ -4,25 +4,18 @@ import { DataqueryBuilder as LokiQuery } from "@grafana/grafana-foundation-sdk/l
 import {
   LogsSortOrder,
   LogsDedupStrategy,
-  VizTooltipOptionsBuilder,
-  TooltipDisplayMode,
-  SortOrder,
 } from "@grafana/grafana-foundation-sdk/common";
 import type * as cog from "@grafana/grafana-foundation-sdk/cog";
 import type * as dashboard from "@grafana/grafana-foundation-sdk/dashboard";
 import { LOKI, LOKI_SELECTOR, HEALTHZ_FILTER } from "./constants";
+import { timeseriesPanel } from "./defaults";
 
 function logVolumeTimeseries(): TimeseriesPanel {
-  return new TimeseriesPanel()
+  return timeseriesPanel()
     .title("Log Volume")
     .description("Log volume by level, per gate (excludes health checks)")
     .datasource(LOKI)
     .unit("short")
-    .tooltip(
-      new VizTooltipOptionsBuilder()
-        .mode(TooltipDisplayMode.Multi)
-        .sort(SortOrder.Descending)
-    )
     .span(24)
     .height(5)
     .withTarget(
@@ -38,6 +31,10 @@ function logVolumeTimeseries(): TimeseriesPanel {
     );
 }
 
+// The logs panel is the one place a bare SDK builder is still correct: its
+// `defaultOptions()` seeds every field with a real boolean rather than an empty
+// collection, and the setters below touch options so the block is materialised.
+// There is nothing for a factory in panels/defaults.ts to fill in.
 function liveLogsPanel(): LogsPanel {
   return new LogsPanel()
     .title("Live Logs")

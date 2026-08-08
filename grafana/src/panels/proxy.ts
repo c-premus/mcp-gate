@@ -5,18 +5,22 @@ import {
   ThresholdsConfigBuilder,
 } from "@grafana/grafana-foundation-sdk/dashboard";
 import { ThresholdsMode } from "@grafana/grafana-foundation-sdk/dashboard";
-import {
-  BigValueColorMode,
-  VizTooltipOptionsBuilder,
-  TooltipDisplayMode,
-  SortOrder,
-} from "@grafana/grafana-foundation-sdk/common";
+import { BigValueColorMode } from "@grafana/grafana-foundation-sdk/common";
 import type * as cog from "@grafana/grafana-foundation-sdk/cog";
 import type * as dashboard from "@grafana/grafana-foundation-sdk/dashboard";
 import { PROMETHEUS, SELECTOR } from "./constants";
+import { statPanel, timeseriesPanel } from "./defaults";
+
+// This section has two stat tiles where the others have three or four, so they
+// are 12 wide rather than 8. That is load-bearing, not cosmetic: the SDK's
+// auto-layout only wraps to the next line *after* placing a panel, once its x
+// cursor has reached 24. Two 8-wide tiles leave the cursor at 16, and the
+// 12-wide timeseries that follows was then placed at x=16 — right edge 28,
+// past the 24-column grid — so Grafana reflowed the whole section. Widths have
+// to tile evenly to 24; validate.ts fails the build if they do not.
 
 function proxyP95Stat(): StatPanel {
-  return new StatPanel()
+  return statPanel()
     .title("Upstream P95")
     .description("95th percentile upstream response latency, per gate")
     .datasource(PROMETHEUS)
@@ -33,7 +37,7 @@ function proxyP95Stat(): StatPanel {
           { value: 2000, color: "red" },
         ])
     )
-    .span(8)
+    .span(12)
     .height(5)
     .withTarget(
       new PrometheusQuery()
@@ -46,7 +50,7 @@ function proxyP95Stat(): StatPanel {
 }
 
 function proxyErrorRateStat(): StatPanel {
-  return new StatPanel()
+  return statPanel()
     .title("Upstream Error Rate")
     .description("5xx upstream responses as percentage of total, per gate")
     .datasource(PROMETHEUS)
@@ -63,7 +67,7 @@ function proxyErrorRateStat(): StatPanel {
           { value: 0.05, color: "red" },
         ])
     )
-    .span(8)
+    .span(12)
     .height(5)
     .withTarget(
       new PrometheusQuery()
@@ -76,16 +80,11 @@ function proxyErrorRateStat(): StatPanel {
 }
 
 function proxyLatencyTimeseries(): TimeseriesPanel {
-  return new TimeseriesPanel()
+  return timeseriesPanel()
     .title("Upstream Latency Percentiles")
     .description("P50, P90, P99 upstream proxy latency, per gate")
     .datasource(PROMETHEUS)
     .unit("s")
-    .tooltip(
-      new VizTooltipOptionsBuilder()
-        .mode(TooltipDisplayMode.Multi)
-        .sort(SortOrder.Descending)
-    )
     .span(12)
     .height(8)
     .withTarget(
@@ -115,16 +114,11 @@ function proxyLatencyTimeseries(): TimeseriesPanel {
 }
 
 function proxyStatusTimeseries(): TimeseriesPanel {
-  return new TimeseriesPanel()
+  return timeseriesPanel()
     .title("Upstream Status Codes")
     .description("Upstream response status codes over time, per gate")
     .datasource(PROMETHEUS)
     .unit("reqps")
-    .tooltip(
-      new VizTooltipOptionsBuilder()
-        .mode(TooltipDisplayMode.Multi)
-        .sort(SortOrder.Descending)
-    )
     .span(12)
     .height(8)
     .withTarget(

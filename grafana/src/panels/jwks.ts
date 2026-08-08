@@ -9,15 +9,11 @@ import {
   ThresholdsMode,
   FieldColorModeId,
 } from "@grafana/grafana-foundation-sdk/dashboard";
-import {
-  BigValueColorMode,
-  VizTooltipOptionsBuilder,
-  TooltipDisplayMode,
-  SortOrder,
-} from "@grafana/grafana-foundation-sdk/common";
+import { BigValueColorMode } from "@grafana/grafana-foundation-sdk/common";
 import type * as cog from "@grafana/grafana-foundation-sdk/cog";
 import type * as dashboard from "@grafana/grafana-foundation-sdk/dashboard";
 import { PROMETHEUS, SELECTOR } from "./constants";
+import { statPanel, timeseriesPanel } from "./defaults";
 
 // These panels query gauges and counters directly, with no aggregation — the
 // series already carry `service`, so selecting several gates yields one series
@@ -26,11 +22,13 @@ import { PROMETHEUS, SELECTOR } from "./constants";
 // gate's tile from another's.
 
 function keysLoadedStat(): StatPanel {
-  return new StatPanel()
+  return statPanel()
     .title("JWKS Keys Loaded")
     .description("Number of cached JWKS signing keys, per gate. Zero means that gate cannot validate any JWT.")
     .datasource(PROMETHEUS)
+    .unit("short")
     .noValue("0")
+    .decimals(0)
     .colorMode(BigValueColorMode.Value)
     .thresholds(
       new ThresholdsConfigBuilder()
@@ -51,11 +49,13 @@ function keysLoadedStat(): StatPanel {
 }
 
 function refreshErrorsStat(): StatPanel {
-  return new StatPanel()
+  return statPanel()
     .title("Refresh Errors")
     .description("JWKS refresh failures within the dashboard time range, per gate (liveness signal)")
     .datasource(PROMETHEUS)
+    .unit("short")
     .noValue("0")
+    .decimals(0)
     .colorMode(BigValueColorMode.Value)
     .thresholds(
       new ThresholdsConfigBuilder()
@@ -78,7 +78,7 @@ function refreshErrorsStat(): StatPanel {
 }
 
 function timeSinceKeyChangeStat(): StatPanel {
-  return new StatPanel()
+  return statPanel()
     .title("Time Since Key Change")
     .description("Duration since the JWKS key set last changed, per gate (correctness signal — stale may indicate stuck refresh)")
     .datasource(PROMETHEUS)
@@ -107,16 +107,11 @@ function timeSinceKeyChangeStat(): StatPanel {
 }
 
 function refreshErrorRateTimeseries(): TimeseriesPanel {
-  return new TimeseriesPanel()
+  return timeseriesPanel()
     .title("JWKS Refresh Error Rate")
     .description("Rate of JWKS refresh failures over time, per gate")
     .datasource(PROMETHEUS)
     .unit("cps")
-    .tooltip(
-      new VizTooltipOptionsBuilder()
-        .mode(TooltipDisplayMode.Multi)
-        .sort(SortOrder.Descending)
-    )
     .span(12)
     .height(8)
     .withTarget(
@@ -130,16 +125,12 @@ function refreshErrorRateTimeseries(): TimeseriesPanel {
 }
 
 function keysLoadedTimeseries(): TimeseriesPanel {
-  return new TimeseriesPanel()
+  return timeseriesPanel()
     .title("JWKS Keys Loaded Over Time")
     .description("Cached JWKS signing-key count over time, per gate")
     .datasource(PROMETHEUS)
+    .unit("short")
     .colorScheme(new FieldColorBuilder().mode(FieldColorModeId.Fixed).fixedColor("green"))
-    .tooltip(
-      new VizTooltipOptionsBuilder()
-        .mode(TooltipDisplayMode.Multi)
-        .sort(SortOrder.Descending)
-    )
     .span(12)
     .height(8)
     .withTarget(

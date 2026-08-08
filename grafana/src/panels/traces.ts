@@ -2,9 +2,10 @@ import { PanelBuilder as TablePanel } from "@grafana/grafana-foundation-sdk/tabl
 import { TempoQueryBuilder } from "@grafana/grafana-foundation-sdk/tempo";
 import { RowBuilder } from "@grafana/grafana-foundation-sdk/dashboard";
 import { TEMPO, TRACE_SERVICE_MATCHER } from "./constants";
+import { tablePanel } from "./defaults";
 
 function recentTracesTable(): TablePanel {
-  return new TablePanel()
+  return tablePanel()
     .title("Recent Traces")
     .description(
       "Recent traces for the selected gate(s), excluding health checks. " +

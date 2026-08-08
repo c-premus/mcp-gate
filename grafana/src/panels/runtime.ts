@@ -6,13 +6,9 @@ import {
   ThresholdsConfigBuilder,
 } from "@grafana/grafana-foundation-sdk/dashboard";
 import { ThresholdsMode } from "@grafana/grafana-foundation-sdk/dashboard";
-import {
-  BigValueColorMode,
-  VizTooltipOptionsBuilder,
-  TooltipDisplayMode,
-  SortOrder,
-} from "@grafana/grafana-foundation-sdk/common";
+import { BigValueColorMode } from "@grafana/grafana-foundation-sdk/common";
 import { PROMETHEUS, SELECTOR } from "./constants";
+import { statPanel, timeseriesPanel } from "./defaults";
 
 // Go runtime metrics are per-process, so each gate contributes its own series
 // with no aggregation needed. Legends are `{{service}}`-prefixed because these
@@ -20,10 +16,11 @@ import { PROMETHEUS, SELECTOR } from "./constants";
 // goroutine count or RSS across two unrelated gates describes nothing.
 
 function goroutinesStat(): StatPanel {
-  return new StatPanel()
+  return statPanel()
     .title("Goroutines")
     .description("Current goroutine count, per gate. Sustained growth suggests a goroutine leak.")
     .datasource(PROMETHEUS)
+    .unit("short")
     .noValue("0")
     .decimals(0)
     .colorMode(BigValueColorMode.Value)
@@ -47,7 +44,7 @@ function goroutinesStat(): StatPanel {
 }
 
 function fdUtilStat(): StatPanel {
-  return new StatPanel()
+  return statPanel()
     .title("FD Utilization")
     .description("Open file descriptors as fraction of process_max_fds, per gate. Approaches 1.0 = FD exhaustion imminent.")
     .datasource(PROMETHEUS)
@@ -77,7 +74,7 @@ function fdUtilStat(): StatPanel {
 }
 
 function residentMemoryStat(): StatPanel {
-  return new StatPanel()
+  return statPanel()
     .title("Resident Memory")
     .description("process_resident_memory_bytes, per gate. Sustained growth without plateau suggests a memory leak.")
     .datasource(PROMETHEUS)
@@ -95,7 +92,7 @@ function residentMemoryStat(): StatPanel {
 }
 
 function gcPauseStat(): StatPanel {
-  return new StatPanel()
+  return statPanel()
     .title("GC Pause (rate)")
     .description("Sum of GC pause durations per second, per gate. High values indicate GC pressure.")
     .datasource(PROMETHEUS)
@@ -125,15 +122,11 @@ function gcPauseStat(): StatPanel {
 }
 
 function goroutinesTimeseries(): TimeseriesPanel {
-  return new TimeseriesPanel()
+  return timeseriesPanel()
     .title("Goroutines Over Time")
     .description("Goroutine count over time, per gate — stable baseline + spikes during bursts is healthy; monotonic growth is a leak.")
     .datasource(PROMETHEUS)
-    .tooltip(
-      new VizTooltipOptionsBuilder()
-        .mode(TooltipDisplayMode.Multi)
-        .sort(SortOrder.Descending)
-    )
+    .unit("short")
     .span(12)
     .height(8)
     .withTarget(
@@ -145,16 +138,11 @@ function goroutinesTimeseries(): TimeseriesPanel {
 }
 
 function memoryTimeseries(): TimeseriesPanel {
-  return new TimeseriesPanel()
+  return timeseriesPanel()
     .title("Memory")
     .description("Resident set size vs Go heap allocations, per gate. RSS growth without heap growth suggests CGO/stack leaks.")
     .datasource(PROMETHEUS)
     .unit("bytes")
-    .tooltip(
-      new VizTooltipOptionsBuilder()
-        .mode(TooltipDisplayMode.Multi)
-        .sort(SortOrder.Descending)
-    )
     .span(12)
     .height(8)
     .withTarget(

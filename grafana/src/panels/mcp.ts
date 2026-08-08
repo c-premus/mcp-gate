@@ -2,14 +2,9 @@ import { PanelBuilder as TimeseriesPanel } from "@grafana/grafana-foundation-sdk
 import { PanelBuilder as PiechartPanel } from "@grafana/grafana-foundation-sdk/piechart";
 import { DataqueryBuilder as PrometheusQuery } from "@grafana/grafana-foundation-sdk/prometheus";
 import { RowBuilder } from "@grafana/grafana-foundation-sdk/dashboard";
-import {
-  VizTooltipOptionsBuilder,
-  TooltipDisplayMode,
-  SortOrder,
-  LegendDisplayMode,
-  VizLegendOptionsBuilder,
-} from "@grafana/grafana-foundation-sdk/common";
+import { LegendDisplayMode } from "@grafana/grafana-foundation-sdk/common";
 import { PROMETHEUS, SELECTOR } from "./constants";
+import { legend, piechartPanel, timeseriesPanel } from "./defaults";
 
 // Panels over mcpgate_mcp_requests_total, sourced from the MCP 2026-07-28
 // request-metadata headers (Mcp-Method, MCP-Protocol-Version). Values are
@@ -23,7 +18,7 @@ import { PROMETHEUS, SELECTOR } from "./constants";
 // populations and pooling them describes nothing real.
 
 function methodMixTimeseries(): TimeseriesPanel {
-  return new TimeseriesPanel()
+  return timeseriesPanel()
     .title("MCP Calls by Method")
     .description(
       "Request rate per MCP method, from the Mcp-Method header, split per gate. " +
@@ -33,16 +28,10 @@ function methodMixTimeseries(): TimeseriesPanel {
     )
     .datasource(PROMETHEUS)
     .unit("reqps")
-    .tooltip(
-      new VizTooltipOptionsBuilder()
-        .mode(TooltipDisplayMode.Multi)
-        .sort(SortOrder.Descending)
-    )
-    .legend(
-      new VizLegendOptionsBuilder()
-        .displayMode(LegendDisplayMode.Table)
-        .calcs(["mean", "max"])
-    )
+    // Table legend with per-series mean and max: the method mix is the one
+    // panel where the summary statistics answer the question directly ("which
+    // methods dominate, and what did each peak at").
+    .legend(legend(LegendDisplayMode.Table, ["mean", "max"]))
     .span(12)
     .height(8)
     .withTarget(
@@ -56,7 +45,7 @@ function methodMixTimeseries(): TimeseriesPanel {
 }
 
 function protocolVersionTimeseries(): TimeseriesPanel {
-  return new TimeseriesPanel()
+  return timeseriesPanel()
     .title("MCP Protocol Version Mix")
     .description(
       "Request rate per protocol revision, from the MCP-Protocol-Version header, split per gate. " +
@@ -68,11 +57,6 @@ function protocolVersionTimeseries(): TimeseriesPanel {
     )
     .datasource(PROMETHEUS)
     .unit("reqps")
-    .tooltip(
-      new VizTooltipOptionsBuilder()
-        .mode(TooltipDisplayMode.Multi)
-        .sort(SortOrder.Descending)
-    )
     .span(12)
     .height(8)
     .withTarget(
@@ -86,10 +70,13 @@ function protocolVersionTimeseries(): TimeseriesPanel {
 }
 
 function methodMixPiechart(): PiechartPanel {
-  return new PiechartPanel()
+  return piechartPanel()
     .title("MCP Method Distribution")
     .description("Share of MCP calls by method over the selected time range, split per gate")
     .datasource(PROMETHEUS)
+    // Counts, not a rate: the query is a range-wide `increase`.
+    .unit("short")
+    .noValue("0")
     .span(12)
     .height(8)
     .withTarget(
