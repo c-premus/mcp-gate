@@ -1693,3 +1693,124 @@ func TestRun_OriginValidationEnabled(t *testing.T) {
 		})
 	}
 }
+
+// --- Healthcheck subcommand tests ---
+
+// TestHealthcheckURL covers the host-mapping branches that were untestable
+// while the logic read LISTEN_ADDR from the environment directly.
+func TestHealthcheckURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		addr    string
+		want    string
+		wantErr bool
+	}{
+		{"empty defaults to 0.0.0.0:8080", "", "http://localhost:8080/healthz", false},
+		{"ipv4 wildcard maps to localhost", "0.0.0.0:8080", "http://localhost:8080/healthz", false},
+		{"ipv6 wildcard maps to localhost", "[::]:8080", "http://localhost:8080/healthz", false},
+		{"empty host maps to localhost", ":8080", "http://localhost:8080/healthz", false},
+		{"loopback is dialed as-is", "127.0.0.1:9090", "http://127.0.0.1:9090/healthz", false},
+		// The production bind address. Mapping this to localhost would make the
+		// container healthcheck fail forever and trip a deploy rollback, so this
+		// case is the regression healthcheckURL exists to protect.
+		{"concrete IP is dialed as-is", "172.20.0.133:8080", "http://172.20.0.133:8080/healthz", false},
+		// Proves net.JoinHostPort re-brackets the IPv6 literal SplitHostPort stripped.
+		{"ipv6 literal is re-bracketed", "[fd00::1]:8080", "http://[fd00::1]:8080/healthz", false},
+		{"missing port is an error", "no-port", "", true},
+		{"too many colons is an error", "host:port:extra", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := healthcheckURL(tt.addr)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("healthcheckURL(%q) = %q, want error", tt.addr, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("healthcheckURL(%q) returned error: %v", tt.addr, err)
+			}
+			if got != tt.want {
+				t.Errorf("healthcheckURL(%q) = %q, want %q", tt.addr, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestCheckHealth asserts the exit-code contract: 0 only on HTTP 200.
+func TestCheckHealth(t *testing.T) {
+	t.Run("200 exits 0", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer srv.Close()
+
+		if got := checkHealth(srv.URL + "/healthz"); got != 0 {
+			t.Errorf("checkHealth = %d, want 0", got)
+		}
+	})
+
+	t.Run("500 exits 1", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer srv.Close()
+
+		if got := checkHealth(srv.URL + "/healthz"); got != 1 {
+			t.Errorf("checkHealth = %d, want 1", got)
+		}
+	})
+
+	t.Run("unreachable exits 1", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		target := srv.URL + "/healthz"
+		// Close before probing: the port is still bound to nothing, so the dial
+		// fails with an immediate ECONNREFUSED rather than burning the client's
+		// full 5s timeout the way an unroutable address would.
+		srv.Close()
+
+		if got := checkHealth(target); got != 1 {
+			t.Errorf("checkHealth = %d, want 1", got)
+		}
+	})
+
+	t.Run("malformed URL exits 1", func(t *testing.T) {
+		// Unbalanced bracket fails in http.NewRequestWithContext, covering the
+		// request-construction error arm before any dial is attempted.
+		if got := checkHealth("http://[::1:8080/healthz"); got != 1 {
+			t.Errorf("checkHealth = %d, want 1", got)
+		}
+	})
+}
+
+// TestRunHealthcheck_EnvWiring is the only test proving the CLI shell is still
+// wired to LISTEN_ADDR. main() calls runHealthcheck for the "healthcheck"
+// subcommand used by the Dockerfile HEALTHCHECK; a regression in this wiring
+// would surface only after image build and deploy, as a rollback rather than
+// a clear error.
+func TestRunHealthcheck_EnvWiring(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	listenAddr := strings.TrimPrefix(srv.URL, "http://")
+	t.Setenv("LISTEN_ADDR", listenAddr)
+	if got := runHealthcheck(); got != 0 {
+		t.Errorf("runHealthcheck with healthy server = %d, want 0", got)
+	}
+
+	closed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	closedAddr := strings.TrimPrefix(closed.URL, "http://")
+	closed.Close()
+
+	t.Setenv("LISTEN_ADDR", closedAddr)
+	if got := runHealthcheck(); got != 1 {
+		t.Errorf("runHealthcheck with closed server = %d, want 1", got)
+	}
+}

@@ -34,29 +34,33 @@ import (
 // version is set at build time via -ldflags.
 var version = "dev"
 
-// runHealthcheck performs a local HTTP GET against /healthz and returns a
-// process exit code. It is split out so defer can run before process exit.
+// healthcheckURL derives the /healthz dial target from a LISTEN_ADDR-style
+// bind address. It is pure: no env, no network.
 //
-// The dial target is derived from LISTEN_ADDR: when the host is empty or a
-// wildcard (0.0.0.0, ::), localhost is used because wildcard binds aren't
-// valid dial targets. When LISTEN_ADDR specifies a concrete IP
-// (e.g. 172.20.0.133:8080), that host is dialed directly — hardcoding
-// localhost would make the healthcheck fail forever on such configs and
-// trigger rollback.
-func runHealthcheck() int {
-	addr := os.Getenv("LISTEN_ADDR")
+// When the host is empty or a wildcard (0.0.0.0, ::), localhost is used
+// because wildcard binds aren't valid dial targets. When the address
+// specifies a concrete IP (e.g. 172.20.0.133:8080), that host is dialed
+// directly — hardcoding localhost would make the healthcheck fail forever on
+// such configs and trigger rollback.
+func healthcheckURL(addr string) (string, error) {
 	if addr == "" {
 		addr = "0.0.0.0:8080"
 	}
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
-		return 1
+		return "", fmt.Errorf("parse listen address %q: %w", addr, err)
 	}
 	switch host {
 	case "", "0.0.0.0", "::":
 		host = "localhost"
 	}
-	target := "http://" + net.JoinHostPort(host, port) + "/healthz"
+	return "http://" + net.JoinHostPort(host, port) + "/healthz", nil
+}
+
+// checkHealth probes target and returns a process exit code: 0 only on HTTP
+// 200, 1 on any other status or transport error. It returns rather than
+// calling os.Exit so deferred cleanup runs before the process exits.
+func checkHealth(target string) int {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, target, http.NoBody)
 	if err != nil {
 		return 1
@@ -71,6 +75,16 @@ func runHealthcheck() int {
 		return 1
 	}
 	return 0
+}
+
+// runHealthcheck is the thin env-reading shell behind the "healthcheck"
+// subcommand used by the distroless image's HEALTHCHECK.
+func runHealthcheck() int {
+	target, err := healthcheckURL(os.Getenv("LISTEN_ADDR"))
+	if err != nil {
+		return 1
+	}
+	return checkHealth(target)
 }
 
 // runConfig holds all configuration needed by run().
