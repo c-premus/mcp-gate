@@ -13,12 +13,12 @@ import {
 } from "@grafana/grafana-foundation-sdk/common";
 import type * as cog from "@grafana/grafana-foundation-sdk/cog";
 import type * as dashboard from "@grafana/grafana-foundation-sdk/dashboard";
-import { PROMETHEUS, JOB_FILTER } from "./constants";
+import { PROMETHEUS, SELECTOR } from "./constants";
 
 function proxyP95Stat(): StatPanel {
   return new StatPanel()
     .title("Upstream P95")
-    .description("95th percentile upstream response latency")
+    .description("95th percentile upstream response latency, per gate")
     .datasource(PROMETHEUS)
     .unit("ms")
     .noValue("0")
@@ -38,9 +38,9 @@ function proxyP95Stat(): StatPanel {
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `histogram_quantile(0.95, sum(rate(mcpgate_proxy_request_duration_seconds_bucket{${JOB_FILTER}}[$__rate_interval])) by (le)) * 1000`
+          `histogram_quantile(0.95, sum(rate(mcpgate_proxy_request_duration_seconds_bucket{${SELECTOR}}[$__rate_interval])) by (le, service)) * 1000`
         )
-        .legendFormat("p95")
+        .legendFormat("{{service}} p95")
         .refId("A")
     );
 }
@@ -48,7 +48,7 @@ function proxyP95Stat(): StatPanel {
 function proxyErrorRateStat(): StatPanel {
   return new StatPanel()
     .title("Upstream Error Rate")
-    .description("5xx upstream responses as percentage of total")
+    .description("5xx upstream responses as percentage of total, per gate")
     .datasource(PROMETHEUS)
     .unit("percentunit")
     .noValue("0")
@@ -68,9 +68,9 @@ function proxyErrorRateStat(): StatPanel {
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `sum(rate(mcpgate_proxy_requests_total{${JOB_FILTER},status_code=~"5.."}[$__rate_interval])) / sum(rate(mcpgate_proxy_requests_total{${JOB_FILTER}}[$__rate_interval]))`
+          `sum by (service) (rate(mcpgate_proxy_requests_total{${SELECTOR},status_code=~"5.."}[$__rate_interval])) / sum by (service) (rate(mcpgate_proxy_requests_total{${SELECTOR}}[$__rate_interval]))`
         )
-        .legendFormat("error %")
+        .legendFormat("{{service}}")
         .refId("A")
     );
 }
@@ -78,7 +78,7 @@ function proxyErrorRateStat(): StatPanel {
 function proxyLatencyTimeseries(): TimeseriesPanel {
   return new TimeseriesPanel()
     .title("Upstream Latency Percentiles")
-    .description("P50, P90, P99 upstream proxy latency")
+    .description("P50, P90, P99 upstream proxy latency, per gate")
     .datasource(PROMETHEUS)
     .unit("s")
     .tooltip(
@@ -91,25 +91,25 @@ function proxyLatencyTimeseries(): TimeseriesPanel {
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `histogram_quantile(0.50, sum(rate(mcpgate_proxy_request_duration_seconds_bucket{${JOB_FILTER}}[$__rate_interval])) by (le))`
+          `histogram_quantile(0.50, sum(rate(mcpgate_proxy_request_duration_seconds_bucket{${SELECTOR}}[$__rate_interval])) by (le, service))`
         )
-        .legendFormat("p50")
+        .legendFormat("{{service}} p50")
         .refId("A")
     )
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `histogram_quantile(0.90, sum(rate(mcpgate_proxy_request_duration_seconds_bucket{${JOB_FILTER}}[$__rate_interval])) by (le))`
+          `histogram_quantile(0.90, sum(rate(mcpgate_proxy_request_duration_seconds_bucket{${SELECTOR}}[$__rate_interval])) by (le, service))`
         )
-        .legendFormat("p90")
+        .legendFormat("{{service}} p90")
         .refId("B")
     )
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `histogram_quantile(0.99, sum(rate(mcpgate_proxy_request_duration_seconds_bucket{${JOB_FILTER}}[$__rate_interval])) by (le))`
+          `histogram_quantile(0.99, sum(rate(mcpgate_proxy_request_duration_seconds_bucket{${SELECTOR}}[$__rate_interval])) by (le, service))`
         )
-        .legendFormat("p99")
+        .legendFormat("{{service}} p99")
         .refId("C")
     );
 }
@@ -117,7 +117,7 @@ function proxyLatencyTimeseries(): TimeseriesPanel {
 function proxyStatusTimeseries(): TimeseriesPanel {
   return new TimeseriesPanel()
     .title("Upstream Status Codes")
-    .description("Upstream response status codes over time")
+    .description("Upstream response status codes over time, per gate")
     .datasource(PROMETHEUS)
     .unit("reqps")
     .tooltip(
@@ -130,9 +130,9 @@ function proxyStatusTimeseries(): TimeseriesPanel {
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `sum by (status_code) (rate(mcpgate_proxy_requests_total{${JOB_FILTER}}[$__rate_interval]))`
+          `sum by (status_code, service) (rate(mcpgate_proxy_requests_total{${SELECTOR}}[$__rate_interval]))`
         )
-        .legendFormat("{{status_code}}")
+        .legendFormat("{{service}} {{status_code}}")
         .refId("A")
     );
 }

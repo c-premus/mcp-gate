@@ -204,6 +204,57 @@ When you start a conversation that uses the MCP connector, Claude.ai will redire
 
 The MCP server never sees the user's JWT. mcp-gate removes the `Authorization` header before forwarding requests.
 
+## Monitoring
+
+mcp-gate serves Prometheus metrics on `METRICS_ADDR` (default `:9090`, path `/metrics`), separate from the proxy port so the metrics endpoint is never exposed publicly.
+
+### Scrape configuration
+
+```yaml
+scrape_configs:
+  - job_name: "mcp-gate"
+    static_configs:
+      - targets: ["mcp-gate:9090"]
+        labels:
+          service: "mcp-gate"
+```
+
+### Running several gates
+
+One mcp-gate fronts one upstream, so protecting several MCP servers means running several gates. Scrape them as **one job with one target group per gate**, and give each a `service` label set to that gate's `OTEL_SERVICE_NAME`:
+
+```yaml
+scrape_configs:
+  - job_name: "mcp-gate"
+    static_configs:
+      - targets: ["mcp-gate:9090"]
+        labels:
+          service: "mcp-gate"          # OTEL_SERVICE_NAME of this gate
+      - targets: ["mcp-gate-forgejo:9090"]
+        labels:
+          service: "mcp-gate-forgejo"  # OTEL_SERVICE_NAME of that gate
+```
+
+Using `OTEL_SERVICE_NAME` as the value is what makes one identity work across all three signals: it is the `service` label in Prometheus, the `service_name` stream label in Loki, and `resource.service.name` on the trace. The bundled dashboard's **Gate** variable is populated from `mcpgate_info`, and every panel — metrics, logs and traces alike — filters on it, so a single selector drives all three.
+
+This label is a contract, not a convention:
+
+- **The dashboard requires it.** Selecting "All" expands to the list of `service` values actually present. If no gate sets the label there is nothing to expand to, and the log panels in particular will not render — Loki rejects a stream selector that could match the empty string, and has no `job` label to fall back on.
+- **The alert rules depend on it too**, but degrade quietly: they aggregate `by (service)` and template the label into each summary. Without it you get one alert instance whose summary reads `mcp-gate`, which is exactly the single-gate behaviour.
+
+Note that the alert rules deliberately carry no `service` label of their own. Grafana applies rule labels *on top of* query labels, so a hardcoded one would overwrite the scraped value and attribute every gate's alerts to the same instance.
+
+### Dashboard and alerts
+
+Provisioning artifacts ship in the repo:
+
+| File | Copy to |
+|------|---------|
+| `docs/grafana/dashboard.json` | Grafana's dashboard provisioning directory |
+| `docs/grafana/alerts.yaml` | Grafana's `alerting/` provisioning directory |
+
+The dashboard is generated — edit the TypeScript under `grafana/src/` and run `npm run generate`, rather than editing the JSON. CI fails if the committed JSON does not match its source.
+
 ## Troubleshooting
 
 ### mcp-gate fails to start

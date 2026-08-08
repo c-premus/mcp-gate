@@ -10,12 +10,12 @@ import {
 } from "@grafana/grafana-foundation-sdk/common";
 import type * as cog from "@grafana/grafana-foundation-sdk/cog";
 import type * as dashboard from "@grafana/grafana-foundation-sdk/dashboard";
-import { LOKI, SERVICE_NAME, HEALTHZ_FILTER } from "./constants";
+import { LOKI, LOKI_SELECTOR, HEALTHZ_FILTER } from "./constants";
 
 function logVolumeTimeseries(): TimeseriesPanel {
   return new TimeseriesPanel()
     .title("Log Volume")
-    .description("Log volume by level (excludes health checks)")
+    .description("Log volume by level, per gate (excludes health checks)")
     .datasource(LOKI)
     .unit("short")
     .tooltip(
@@ -27,10 +27,13 @@ function logVolumeTimeseries(): TimeseriesPanel {
     .height(5)
     .withTarget(
       new LokiQuery()
+        // Grouped by `service_name`, not `service` — on the Loki side the gate
+        // identity is carried by the stream label, and grouping by a label the
+        // stream does not have would collapse every gate into one series.
         .expr(
-          `sum by (level) (count_over_time({service_name="${SERVICE_NAME}"} | json | ${HEALTHZ_FILTER} [$__auto]))`
+          `sum by (level, service_name) (count_over_time(${LOKI_SELECTOR} | json | ${HEALTHZ_FILTER} [$__auto]))`
         )
-        .legendFormat("{{level}}")
+        .legendFormat("{{service_name}} {{level}}")
         .refId("A")
     );
 }
@@ -38,7 +41,7 @@ function logVolumeTimeseries(): TimeseriesPanel {
 function liveLogsPanel(): LogsPanel {
   return new LogsPanel()
     .title("Live Logs")
-    .description("Live log stream (excludes health checks)")
+    .description("Live log stream, all selected gates (excludes health checks)")
     .datasource(LOKI)
     .showTime(true)
     .sortOrder(LogsSortOrder.Descending)
@@ -49,7 +52,7 @@ function liveLogsPanel(): LogsPanel {
     .height(16)
     .withTarget(
       new LokiQuery()
-        .expr(`{service_name="${SERVICE_NAME}"} | json | ${HEALTHZ_FILTER}`)
+        .expr(`${LOKI_SELECTOR} | json | ${HEALTHZ_FILTER}`)
         .refId("A")
     );
 }

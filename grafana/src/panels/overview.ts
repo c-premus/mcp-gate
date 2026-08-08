@@ -17,12 +17,12 @@ import {
 } from "@grafana/grafana-foundation-sdk/common";
 import type * as cog from "@grafana/grafana-foundation-sdk/cog";
 import type * as dashboard from "@grafana/grafana-foundation-sdk/dashboard";
-import { PROMETHEUS, JOB_FILTER } from "./constants";
+import { PROMETHEUS, SELECTOR } from "./constants";
 
 function requestRateStat(): StatPanel {
   return new StatPanel()
     .title("Request Rate")
-    .description("Requests per second")
+    .description("Requests per second, per gate")
     .datasource(PROMETHEUS)
     .unit("reqps")
     .noValue("0")
@@ -32,8 +32,8 @@ function requestRateStat(): StatPanel {
     .height(5)
     .withTarget(
       new PrometheusQuery()
-        .expr(`sum(rate(mcpgate_http_requests_total{${JOB_FILTER}}[$__rate_interval]))`)
-        .legendFormat("req/s")
+        .expr(`sum by (service) (rate(mcpgate_http_requests_total{${SELECTOR}}[$__rate_interval]))`)
+        .legendFormat("{{service}}")
         .refId("A")
     );
 }
@@ -41,7 +41,7 @@ function requestRateStat(): StatPanel {
 function errorRateStat(): StatPanel {
   return new StatPanel()
     .title("Error Rate")
-    .description("5xx responses as percentage of total")
+    .description("5xx responses as percentage of total, per gate")
     .datasource(PROMETHEUS)
     .unit("percentunit")
     .noValue("0")
@@ -61,9 +61,9 @@ function errorRateStat(): StatPanel {
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `sum(rate(mcpgate_http_requests_total{${JOB_FILTER},status_code=~"5.."}[$__rate_interval])) / sum(rate(mcpgate_http_requests_total{${JOB_FILTER}}[$__rate_interval]))`
+          `sum by (service) (rate(mcpgate_http_requests_total{${SELECTOR},status_code=~"5.."}[$__rate_interval])) / sum by (service) (rate(mcpgate_http_requests_total{${SELECTOR}}[$__rate_interval]))`
         )
-        .legendFormat("error %")
+        .legendFormat("{{service}}")
         .refId("A")
     );
 }
@@ -71,7 +71,7 @@ function errorRateStat(): StatPanel {
 function p95LatencyStat(): StatPanel {
   return new StatPanel()
     .title("P95 Latency")
-    .description("95th percentile request latency")
+    .description("95th percentile request latency, per gate")
     .datasource(PROMETHEUS)
     .unit("ms")
     .noValue("0")
@@ -91,9 +91,9 @@ function p95LatencyStat(): StatPanel {
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `histogram_quantile(0.95, sum(rate(mcpgate_http_request_duration_seconds_bucket{${JOB_FILTER}}[$__rate_interval])) by (le)) * 1000`
+          `histogram_quantile(0.95, sum(rate(mcpgate_http_request_duration_seconds_bucket{${SELECTOR}}[$__rate_interval])) by (le, service)) * 1000`
         )
-        .legendFormat("p95")
+        .legendFormat("{{service}} p95")
         .refId("A")
     );
 }
@@ -101,7 +101,7 @@ function p95LatencyStat(): StatPanel {
 function requestRateTimeseries(): TimeseriesPanel {
   return new TimeseriesPanel()
     .title("Request Rate by Status")
-    .description("HTTP request rate broken down by status code")
+    .description("HTTP request rate broken down by status code, per gate")
     .datasource(PROMETHEUS)
     .unit("reqps")
     .tooltip(
@@ -114,9 +114,9 @@ function requestRateTimeseries(): TimeseriesPanel {
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `sum by (status_code) (rate(mcpgate_http_requests_total{${JOB_FILTER}}[$__rate_interval]))`
+          `sum by (status_code, service) (rate(mcpgate_http_requests_total{${SELECTOR}}[$__rate_interval]))`
         )
-        .legendFormat("{{status_code}}")
+        .legendFormat("{{service}} {{status_code}}")
         .refId("A")
     );
 }
@@ -124,7 +124,7 @@ function requestRateTimeseries(): TimeseriesPanel {
 function latencyTimeseries(): TimeseriesPanel {
   return new TimeseriesPanel()
     .title("Request Latency Percentiles")
-    .description("P50, P90, P99 request latency")
+    .description("P50, P90, P99 request latency, per gate")
     .datasource(PROMETHEUS)
     .unit("s")
     .tooltip(
@@ -137,25 +137,25 @@ function latencyTimeseries(): TimeseriesPanel {
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `histogram_quantile(0.50, sum(rate(mcpgate_http_request_duration_seconds_bucket{${JOB_FILTER}}[$__rate_interval])) by (le))`
+          `histogram_quantile(0.50, sum(rate(mcpgate_http_request_duration_seconds_bucket{${SELECTOR}}[$__rate_interval])) by (le, service))`
         )
-        .legendFormat("p50")
+        .legendFormat("{{service}} p50")
         .refId("A")
     )
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `histogram_quantile(0.90, sum(rate(mcpgate_http_request_duration_seconds_bucket{${JOB_FILTER}}[$__rate_interval])) by (le))`
+          `histogram_quantile(0.90, sum(rate(mcpgate_http_request_duration_seconds_bucket{${SELECTOR}}[$__rate_interval])) by (le, service))`
         )
-        .legendFormat("p90")
+        .legendFormat("{{service}} p90")
         .refId("B")
     )
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `histogram_quantile(0.99, sum(rate(mcpgate_http_request_duration_seconds_bucket{${JOB_FILTER}}[$__rate_interval])) by (le))`
+          `histogram_quantile(0.99, sum(rate(mcpgate_http_request_duration_seconds_bucket{${SELECTOR}}[$__rate_interval])) by (le, service))`
         )
-        .legendFormat("p99")
+        .legendFormat("{{service}} p99")
         .refId("C")
     );
 }

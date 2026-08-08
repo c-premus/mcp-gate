@@ -18,12 +18,12 @@ import {
 } from "@grafana/grafana-foundation-sdk/common";
 import type * as cog from "@grafana/grafana-foundation-sdk/cog";
 import type * as dashboard from "@grafana/grafana-foundation-sdk/dashboard";
-import { PROMETHEUS, JOB_FILTER } from "./constants";
+import { PROMETHEUS, SELECTOR } from "./constants";
 
 function validAuthStat(): StatPanel {
   return new StatPanel()
     .title("Valid Auth")
-    .description("Successful JWT validations per second")
+    .description("Successful JWT validations per second, per gate")
     .datasource(PROMETHEUS)
     .unit("reqps")
     .noValue("0")
@@ -34,9 +34,9 @@ function validAuthStat(): StatPanel {
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `sum(rate(mcpgate_auth_validations_total{${JOB_FILTER},outcome="valid"}[$__rate_interval]))`
+          `sum by (service) (rate(mcpgate_auth_validations_total{${SELECTOR},outcome="valid"}[$__rate_interval]))`
         )
-        .legendFormat("valid/s")
+        .legendFormat("{{service}}")
         .refId("A")
     );
 }
@@ -44,7 +44,7 @@ function validAuthStat(): StatPanel {
 function noTokenStat(): StatPanel {
   return new StatPanel()
     .title("No Token")
-    .description("Requests without Bearer token per second")
+    .description("Requests without Bearer token per second, per gate")
     .datasource(PROMETHEUS)
     .unit("reqps")
     .noValue("0")
@@ -63,9 +63,9 @@ function noTokenStat(): StatPanel {
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `sum(rate(mcpgate_auth_validations_total{${JOB_FILTER},outcome="no_token"}[$__rate_interval]))`
+          `sum by (service) (rate(mcpgate_auth_validations_total{${SELECTOR},outcome="no_token"}[$__rate_interval]))`
         )
-        .legendFormat("no_token/s")
+        .legendFormat("{{service}}")
         .refId("A")
     );
 }
@@ -73,7 +73,7 @@ function noTokenStat(): StatPanel {
 function invalidTokenStat(): StatPanel {
   return new StatPanel()
     .title("Invalid Token")
-    .description("Invalid/expired token rejections per second")
+    .description("Invalid/expired token rejections per second, per gate")
     .datasource(PROMETHEUS)
     .unit("reqps")
     .noValue("0")
@@ -92,9 +92,9 @@ function invalidTokenStat(): StatPanel {
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `sum(rate(mcpgate_auth_validations_total{${JOB_FILTER},outcome="invalid_token"}[$__rate_interval]))`
+          `sum by (service) (rate(mcpgate_auth_validations_total{${SELECTOR},outcome="invalid_token"}[$__rate_interval]))`
         )
-        .legendFormat("invalid/s")
+        .legendFormat("{{service}}")
         .refId("A")
     );
 }
@@ -102,7 +102,7 @@ function invalidTokenStat(): StatPanel {
 function insufficientScopeStat(): StatPanel {
   return new StatPanel()
     .title("Insufficient Scope")
-    .description("Scope-check failures per second")
+    .description("Scope-check failures per second, per gate")
     .datasource(PROMETHEUS)
     .unit("reqps")
     .noValue("0")
@@ -121,9 +121,9 @@ function insufficientScopeStat(): StatPanel {
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `sum(rate(mcpgate_auth_validations_total{${JOB_FILTER},outcome="insufficient_scope"}[$__rate_interval]))`
+          `sum by (service) (rate(mcpgate_auth_validations_total{${SELECTOR},outcome="insufficient_scope"}[$__rate_interval]))`
         )
-        .legendFormat("scope_fail/s")
+        .legendFormat("{{service}}")
         .refId("A")
     );
 }
@@ -131,7 +131,7 @@ function insufficientScopeStat(): StatPanel {
 function authFailureTimeseries(): TimeseriesPanel {
   return new TimeseriesPanel()
     .title("Auth Failure Rate")
-    .description("Authentication failures over time by outcome")
+    .description("Authentication failures over time by outcome, per gate")
     .datasource(PROMETHEUS)
     .unit("reqps")
     .tooltip(
@@ -144,9 +144,9 @@ function authFailureTimeseries(): TimeseriesPanel {
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `sum by (outcome) (rate(mcpgate_auth_validations_total{${JOB_FILTER},outcome!="valid"}[$__rate_interval]))`
+          `sum by (outcome, service) (rate(mcpgate_auth_validations_total{${SELECTOR},outcome!="valid"}[$__rate_interval]))`
         )
-        .legendFormat("{{outcome}}")
+        .legendFormat("{{service}} {{outcome}}")
         .refId("A")
     );
 }
@@ -154,16 +154,16 @@ function authFailureTimeseries(): TimeseriesPanel {
 function authOutcomePiechart(): PiechartPanel {
   return new PiechartPanel()
     .title("Auth Outcomes")
-    .description("Distribution of authentication outcomes over the selected time range")
+    .description("Distribution of authentication outcomes over the selected time range, per gate")
     .datasource(PROMETHEUS)
     .span(12)
     .height(8)
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `sum by (outcome) (increase(mcpgate_auth_validations_total{${JOB_FILTER}}[$__range]))`
+          `sum by (outcome, service) (increase(mcpgate_auth_validations_total{${SELECTOR}}[$__range]))`
         )
-        .legendFormat("{{outcome}}")
+        .legendFormat("{{service}} {{outcome}}")
         .refId("A")
         .instant()
     );

@@ -12,12 +12,17 @@ import {
   TooltipDisplayMode,
   SortOrder,
 } from "@grafana/grafana-foundation-sdk/common";
-import { PROMETHEUS, JOB_FILTER } from "./constants";
+import { PROMETHEUS, SELECTOR } from "./constants";
+
+// Go runtime metrics are per-process, so each gate contributes its own series
+// with no aggregation needed. Legends are `{{service}}`-prefixed because these
+// numbers are only meaningful attributed to a specific process — a pooled
+// goroutine count or RSS across two unrelated gates describes nothing.
 
 function goroutinesStat(): StatPanel {
   return new StatPanel()
     .title("Goroutines")
-    .description("Current goroutine count. Sustained growth suggests a goroutine leak.")
+    .description("Current goroutine count, per gate. Sustained growth suggests a goroutine leak.")
     .datasource(PROMETHEUS)
     .noValue("0")
     .decimals(0)
@@ -35,8 +40,8 @@ function goroutinesStat(): StatPanel {
     .height(5)
     .withTarget(
       new PrometheusQuery()
-        .expr(`go_goroutines{${JOB_FILTER}}`)
-        .legendFormat("goroutines")
+        .expr(`go_goroutines{${SELECTOR}}`)
+        .legendFormat("{{service}}")
         .refId("A")
     );
 }
@@ -44,7 +49,7 @@ function goroutinesStat(): StatPanel {
 function fdUtilStat(): StatPanel {
   return new StatPanel()
     .title("FD Utilization")
-    .description("Open file descriptors as fraction of process_max_fds. Approaches 1.0 = FD exhaustion imminent.")
+    .description("Open file descriptors as fraction of process_max_fds, per gate. Approaches 1.0 = FD exhaustion imminent.")
     .datasource(PROMETHEUS)
     .unit("percentunit")
     .noValue("0")
@@ -64,9 +69,9 @@ function fdUtilStat(): StatPanel {
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `process_open_fds{${JOB_FILTER}} / process_max_fds{${JOB_FILTER}}`
+          `process_open_fds{${SELECTOR}} / process_max_fds{${SELECTOR}}`
         )
-        .legendFormat("fd util")
+        .legendFormat("{{service}}")
         .refId("A")
     );
 }
@@ -74,7 +79,7 @@ function fdUtilStat(): StatPanel {
 function residentMemoryStat(): StatPanel {
   return new StatPanel()
     .title("Resident Memory")
-    .description("process_resident_memory_bytes. Sustained growth without plateau suggests a memory leak.")
+    .description("process_resident_memory_bytes, per gate. Sustained growth without plateau suggests a memory leak.")
     .datasource(PROMETHEUS)
     .unit("bytes")
     .noValue("0")
@@ -83,8 +88,8 @@ function residentMemoryStat(): StatPanel {
     .height(5)
     .withTarget(
       new PrometheusQuery()
-        .expr(`process_resident_memory_bytes{${JOB_FILTER}}`)
-        .legendFormat("rss")
+        .expr(`process_resident_memory_bytes{${SELECTOR}}`)
+        .legendFormat("{{service}}")
         .refId("A")
     );
 }
@@ -92,7 +97,7 @@ function residentMemoryStat(): StatPanel {
 function gcPauseStat(): StatPanel {
   return new StatPanel()
     .title("GC Pause (rate)")
-    .description("Sum of GC pause durations per second. High values indicate GC pressure.")
+    .description("Sum of GC pause durations per second, per gate. High values indicate GC pressure.")
     .datasource(PROMETHEUS)
     .unit("s")
     .noValue("0")
@@ -112,9 +117,9 @@ function gcPauseStat(): StatPanel {
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `rate(go_gc_duration_seconds_sum{${JOB_FILTER}}[$__rate_interval])`
+          `rate(go_gc_duration_seconds_sum{${SELECTOR}}[$__rate_interval])`
         )
-        .legendFormat("gc pause/s")
+        .legendFormat("{{service}}")
         .refId("A")
     );
 }
@@ -122,7 +127,7 @@ function gcPauseStat(): StatPanel {
 function goroutinesTimeseries(): TimeseriesPanel {
   return new TimeseriesPanel()
     .title("Goroutines Over Time")
-    .description("Goroutine count over time — stable baseline + spikes during bursts is healthy; monotonic growth is a leak.")
+    .description("Goroutine count over time, per gate — stable baseline + spikes during bursts is healthy; monotonic growth is a leak.")
     .datasource(PROMETHEUS)
     .tooltip(
       new VizTooltipOptionsBuilder()
@@ -133,8 +138,8 @@ function goroutinesTimeseries(): TimeseriesPanel {
     .height(8)
     .withTarget(
       new PrometheusQuery()
-        .expr(`go_goroutines{${JOB_FILTER}}`)
-        .legendFormat("goroutines")
+        .expr(`go_goroutines{${SELECTOR}}`)
+        .legendFormat("{{service}}")
         .refId("A")
     );
 }
@@ -142,7 +147,7 @@ function goroutinesTimeseries(): TimeseriesPanel {
 function memoryTimeseries(): TimeseriesPanel {
   return new TimeseriesPanel()
     .title("Memory")
-    .description("Resident set size vs Go heap allocations. RSS growth without heap growth suggests CGO/stack leaks.")
+    .description("Resident set size vs Go heap allocations, per gate. RSS growth without heap growth suggests CGO/stack leaks.")
     .datasource(PROMETHEUS)
     .unit("bytes")
     .tooltip(
@@ -154,20 +159,20 @@ function memoryTimeseries(): TimeseriesPanel {
     .height(8)
     .withTarget(
       new PrometheusQuery()
-        .expr(`process_resident_memory_bytes{${JOB_FILTER}}`)
-        .legendFormat("rss")
+        .expr(`process_resident_memory_bytes{${SELECTOR}}`)
+        .legendFormat("{{service}} rss")
         .refId("A")
     )
     .withTarget(
       new PrometheusQuery()
-        .expr(`go_memstats_heap_alloc_bytes{${JOB_FILTER}}`)
-        .legendFormat("heap alloc")
+        .expr(`go_memstats_heap_alloc_bytes{${SELECTOR}}`)
+        .legendFormat("{{service}} heap alloc")
         .refId("B")
     )
     .withTarget(
       new PrometheusQuery()
-        .expr(`go_memstats_heap_inuse_bytes{${JOB_FILTER}}`)
-        .legendFormat("heap in-use")
+        .expr(`go_memstats_heap_inuse_bytes{${SELECTOR}}`)
+        .legendFormat("{{service}} heap in-use")
         .refId("C")
     );
 }

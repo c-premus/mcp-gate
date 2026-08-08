@@ -17,12 +17,18 @@ import {
 } from "@grafana/grafana-foundation-sdk/common";
 import type * as cog from "@grafana/grafana-foundation-sdk/cog";
 import type * as dashboard from "@grafana/grafana-foundation-sdk/dashboard";
-import { PROMETHEUS, JOB_FILTER } from "./constants";
+import { PROMETHEUS, SELECTOR } from "./constants";
+
+// These panels query gauges and counters directly, with no aggregation — the
+// series already carry `service`, so selecting several gates yields one series
+// each without any `by` clause. The legends are `{{service}}` for exactly that
+// reason: on a stat panel the series name is the only thing distinguishing one
+// gate's tile from another's.
 
 function keysLoadedStat(): StatPanel {
   return new StatPanel()
     .title("JWKS Keys Loaded")
-    .description("Number of cached JWKS signing keys. Zero means mcp-gate cannot validate any JWT.")
+    .description("Number of cached JWKS signing keys, per gate. Zero means that gate cannot validate any JWT.")
     .datasource(PROMETHEUS)
     .noValue("0")
     .colorMode(BigValueColorMode.Value)
@@ -38,8 +44,8 @@ function keysLoadedStat(): StatPanel {
     .height(5)
     .withTarget(
       new PrometheusQuery()
-        .expr(`mcpgate_jwks_keys_loaded{${JOB_FILTER}}`)
-        .legendFormat("keys")
+        .expr(`mcpgate_jwks_keys_loaded{${SELECTOR}}`)
+        .legendFormat("{{service}}")
         .refId("A")
     );
 }
@@ -47,7 +53,7 @@ function keysLoadedStat(): StatPanel {
 function refreshErrorsStat(): StatPanel {
   return new StatPanel()
     .title("Refresh Errors")
-    .description("JWKS refresh failures within the dashboard time range (liveness signal)")
+    .description("JWKS refresh failures within the dashboard time range, per gate (liveness signal)")
     .datasource(PROMETHEUS)
     .noValue("0")
     .colorMode(BigValueColorMode.Value)
@@ -64,8 +70,8 @@ function refreshErrorsStat(): StatPanel {
     .height(5)
     .withTarget(
       new PrometheusQuery()
-        .expr(`increase(mcpgate_jwks_refresh_errors_total{${JOB_FILTER}}[$__range])`)
-        .legendFormat("errors")
+        .expr(`increase(mcpgate_jwks_refresh_errors_total{${SELECTOR}}[$__range])`)
+        .legendFormat("{{service}}")
         .refId("A")
         .instant()
     );
@@ -74,7 +80,7 @@ function refreshErrorsStat(): StatPanel {
 function timeSinceKeyChangeStat(): StatPanel {
   return new StatPanel()
     .title("Time Since Key Change")
-    .description("Duration since the JWKS key set last changed (correctness signal — stale may indicate stuck refresh)")
+    .description("Duration since the JWKS key set last changed, per gate (correctness signal — stale may indicate stuck refresh)")
     .datasource(PROMETHEUS)
     .unit("s")
     .noValue("—")
@@ -93,9 +99,9 @@ function timeSinceKeyChangeStat(): StatPanel {
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `time() - mcpgate_jwks_last_key_change_timestamp_seconds{${JOB_FILTER}}`
+          `time() - mcpgate_jwks_last_key_change_timestamp_seconds{${SELECTOR}}`
         )
-        .legendFormat("age")
+        .legendFormat("{{service}}")
         .refId("A")
     );
 }
@@ -103,7 +109,7 @@ function timeSinceKeyChangeStat(): StatPanel {
 function refreshErrorRateTimeseries(): TimeseriesPanel {
   return new TimeseriesPanel()
     .title("JWKS Refresh Error Rate")
-    .description("Rate of JWKS refresh failures over time")
+    .description("Rate of JWKS refresh failures over time, per gate")
     .datasource(PROMETHEUS)
     .unit("cps")
     .tooltip(
@@ -116,9 +122,9 @@ function refreshErrorRateTimeseries(): TimeseriesPanel {
     .withTarget(
       new PrometheusQuery()
         .expr(
-          `rate(mcpgate_jwks_refresh_errors_total{${JOB_FILTER}}[$__rate_interval])`
+          `rate(mcpgate_jwks_refresh_errors_total{${SELECTOR}}[$__rate_interval])`
         )
-        .legendFormat("errors/s")
+        .legendFormat("{{service}}")
         .refId("A")
     );
 }
@@ -126,7 +132,7 @@ function refreshErrorRateTimeseries(): TimeseriesPanel {
 function keysLoadedTimeseries(): TimeseriesPanel {
   return new TimeseriesPanel()
     .title("JWKS Keys Loaded Over Time")
-    .description("Cached JWKS signing-key count over time")
+    .description("Cached JWKS signing-key count over time, per gate")
     .datasource(PROMETHEUS)
     .colorScheme(new FieldColorBuilder().mode(FieldColorModeId.Fixed).fixedColor("green"))
     .tooltip(
@@ -138,8 +144,8 @@ function keysLoadedTimeseries(): TimeseriesPanel {
     .height(8)
     .withTarget(
       new PrometheusQuery()
-        .expr(`mcpgate_jwks_keys_loaded{${JOB_FILTER}}`)
-        .legendFormat("keys")
+        .expr(`mcpgate_jwks_keys_loaded{${SELECTOR}}`)
+        .legendFormat("{{service}}")
         .refId("A")
     );
 }

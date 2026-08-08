@@ -44,6 +44,40 @@
         "auto_count": 30,
         "label": "Loki",
         "query": "loki"
+      },
+      {
+        "type": "query",
+        "name": "service",
+        "skipUrlSync": false,
+        "multi": true,
+        "allowCustomValue": true,
+        "includeAll": true,
+        "auto": false,
+        "auto_min": "10s",
+        "auto_count": 30,
+        "label": "Gate",
+        "description": "mcp-gate instance(s) to display. 'All' pools nothing — panels stay split per gate.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "query": {
+          "qryType": 1,
+          "label": "service",
+          "metric": "mcpgate_info{job=\"mcp-gate\"}",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ],
+          "selected": true
+        }
       }
     ]
   },
@@ -80,7 +114,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "Request Rate",
-      "description": "Requests per second",
+      "description": "Requests per second, per gate",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -117,9 +151,9 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(mcpgate_http_requests_total{job=\"mcp-gate\"}[$__rate_interval]))",
+          "expr": "sum by (service) (rate(mcpgate_http_requests_total{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval]))",
           "refId": "A",
-          "legendFormat": "req/s"
+          "legendFormat": "{{service}}"
         }
       ]
     },
@@ -128,7 +162,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "Error Rate",
-      "description": "5xx responses as percentage of total",
+      "description": "5xx responses as percentage of total, per gate",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -179,9 +213,9 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(mcpgate_http_requests_total{job=\"mcp-gate\",status_code=~\"5..\"}[$__rate_interval])) / sum(rate(mcpgate_http_requests_total{job=\"mcp-gate\"}[$__rate_interval]))",
+          "expr": "sum by (service) (rate(mcpgate_http_requests_total{job=\"mcp-gate\", service=~\"$service\",status_code=~\"5..\"}[$__rate_interval])) / sum by (service) (rate(mcpgate_http_requests_total{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval]))",
           "refId": "A",
-          "legendFormat": "error %"
+          "legendFormat": "{{service}}"
         }
       ]
     },
@@ -190,7 +224,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "P95 Latency",
-      "description": "95th percentile request latency",
+      "description": "95th percentile request latency, per gate",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -241,9 +275,9 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(mcpgate_http_request_duration_seconds_bucket{job=\"mcp-gate\"}[$__rate_interval])) by (le)) * 1000",
+          "expr": "histogram_quantile(0.95, sum(rate(mcpgate_http_request_duration_seconds_bucket{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval])) by (le, service)) * 1000",
           "refId": "A",
-          "legendFormat": "p95"
+          "legendFormat": "{{service}} p95"
         }
       ]
     },
@@ -252,7 +286,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "Request Rate by Status",
-      "description": "HTTP request rate broken down by status code",
+      "description": "HTTP request rate broken down by status code, per gate",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -283,9 +317,9 @@
       },
       "targets": [
         {
-          "expr": "sum by (status_code) (rate(mcpgate_http_requests_total{job=\"mcp-gate\"}[$__rate_interval]))",
+          "expr": "sum by (status_code, service) (rate(mcpgate_http_requests_total{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval]))",
           "refId": "A",
-          "legendFormat": "{{status_code}}"
+          "legendFormat": "{{service}} {{status_code}}"
         }
       ]
     },
@@ -294,7 +328,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "Request Latency Percentiles",
-      "description": "P50, P90, P99 request latency",
+      "description": "P50, P90, P99 request latency, per gate",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -325,19 +359,19 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(mcpgate_http_request_duration_seconds_bucket{job=\"mcp-gate\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(mcpgate_http_request_duration_seconds_bucket{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval])) by (le, service))",
           "refId": "A",
-          "legendFormat": "p50"
+          "legendFormat": "{{service}} p50"
         },
         {
-          "expr": "histogram_quantile(0.90, sum(rate(mcpgate_http_request_duration_seconds_bucket{job=\"mcp-gate\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.90, sum(rate(mcpgate_http_request_duration_seconds_bucket{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval])) by (le, service))",
           "refId": "B",
-          "legendFormat": "p90"
+          "legendFormat": "{{service}} p90"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(mcpgate_http_request_duration_seconds_bucket{job=\"mcp-gate\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(mcpgate_http_request_duration_seconds_bucket{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval])) by (le, service))",
           "refId": "C",
-          "legendFormat": "p99"
+          "legendFormat": "{{service}} p99"
         }
       ]
     },
@@ -359,7 +393,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "Valid Auth",
-      "description": "Successful JWT validations per second",
+      "description": "Successful JWT validations per second, per gate",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -396,9 +430,9 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(mcpgate_auth_validations_total{job=\"mcp-gate\",outcome=\"valid\"}[$__rate_interval]))",
+          "expr": "sum by (service) (rate(mcpgate_auth_validations_total{job=\"mcp-gate\", service=~\"$service\",outcome=\"valid\"}[$__rate_interval]))",
           "refId": "A",
-          "legendFormat": "valid/s"
+          "legendFormat": "{{service}}"
         }
       ]
     },
@@ -407,7 +441,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "No Token",
-      "description": "Requests without Bearer token per second",
+      "description": "Requests without Bearer token per second, per gate",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -457,9 +491,9 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(mcpgate_auth_validations_total{job=\"mcp-gate\",outcome=\"no_token\"}[$__rate_interval]))",
+          "expr": "sum by (service) (rate(mcpgate_auth_validations_total{job=\"mcp-gate\", service=~\"$service\",outcome=\"no_token\"}[$__rate_interval]))",
           "refId": "A",
-          "legendFormat": "no_token/s"
+          "legendFormat": "{{service}}"
         }
       ]
     },
@@ -468,7 +502,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "Invalid Token",
-      "description": "Invalid/expired token rejections per second",
+      "description": "Invalid/expired token rejections per second, per gate",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -518,9 +552,9 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(mcpgate_auth_validations_total{job=\"mcp-gate\",outcome=\"invalid_token\"}[$__rate_interval]))",
+          "expr": "sum by (service) (rate(mcpgate_auth_validations_total{job=\"mcp-gate\", service=~\"$service\",outcome=\"invalid_token\"}[$__rate_interval]))",
           "refId": "A",
-          "legendFormat": "invalid/s"
+          "legendFormat": "{{service}}"
         }
       ]
     },
@@ -529,7 +563,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "Insufficient Scope",
-      "description": "Scope-check failures per second",
+      "description": "Scope-check failures per second, per gate",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -579,9 +613,9 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(mcpgate_auth_validations_total{job=\"mcp-gate\",outcome=\"insufficient_scope\"}[$__rate_interval]))",
+          "expr": "sum by (service) (rate(mcpgate_auth_validations_total{job=\"mcp-gate\", service=~\"$service\",outcome=\"insufficient_scope\"}[$__rate_interval]))",
           "refId": "A",
-          "legendFormat": "scope_fail/s"
+          "legendFormat": "{{service}}"
         }
       ]
     },
@@ -590,7 +624,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "Auth Failure Rate",
-      "description": "Authentication failures over time by outcome",
+      "description": "Authentication failures over time by outcome, per gate",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -621,9 +655,9 @@
       },
       "targets": [
         {
-          "expr": "sum by (outcome) (rate(mcpgate_auth_validations_total{job=\"mcp-gate\",outcome!=\"valid\"}[$__rate_interval]))",
+          "expr": "sum by (outcome, service) (rate(mcpgate_auth_validations_total{job=\"mcp-gate\", service=~\"$service\",outcome!=\"valid\"}[$__rate_interval]))",
           "refId": "A",
-          "legendFormat": "{{outcome}}"
+          "legendFormat": "{{service}} {{outcome}}"
         }
       ]
     },
@@ -632,7 +666,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "Auth Outcomes",
-      "description": "Distribution of authentication outcomes over the selected time range",
+      "description": "Distribution of authentication outcomes over the selected time range, per gate",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -645,9 +679,9 @@
       },
       "targets": [
         {
-          "expr": "sum by (outcome) (increase(mcpgate_auth_validations_total{job=\"mcp-gate\"}[$__range]))",
+          "expr": "sum by (outcome, service) (increase(mcpgate_auth_validations_total{job=\"mcp-gate\", service=~\"$service\"}[$__range]))",
           "refId": "A",
-          "legendFormat": "{{outcome}}",
+          "legendFormat": "{{service}} {{outcome}}",
           "instant": true,
           "range": false
         }
@@ -671,7 +705,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "Upstream P95",
-      "description": "95th percentile upstream response latency",
+      "description": "95th percentile upstream response latency, per gate",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -722,9 +756,9 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(mcpgate_proxy_request_duration_seconds_bucket{job=\"mcp-gate\"}[$__rate_interval])) by (le)) * 1000",
+          "expr": "histogram_quantile(0.95, sum(rate(mcpgate_proxy_request_duration_seconds_bucket{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval])) by (le, service)) * 1000",
           "refId": "A",
-          "legendFormat": "p95"
+          "legendFormat": "{{service}} p95"
         }
       ]
     },
@@ -733,7 +767,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "Upstream Error Rate",
-      "description": "5xx upstream responses as percentage of total",
+      "description": "5xx upstream responses as percentage of total, per gate",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -784,9 +818,9 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(mcpgate_proxy_requests_total{job=\"mcp-gate\",status_code=~\"5..\"}[$__rate_interval])) / sum(rate(mcpgate_proxy_requests_total{job=\"mcp-gate\"}[$__rate_interval]))",
+          "expr": "sum by (service) (rate(mcpgate_proxy_requests_total{job=\"mcp-gate\", service=~\"$service\",status_code=~\"5..\"}[$__rate_interval])) / sum by (service) (rate(mcpgate_proxy_requests_total{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval]))",
           "refId": "A",
-          "legendFormat": "error %"
+          "legendFormat": "{{service}}"
         }
       ]
     },
@@ -795,7 +829,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "Upstream Latency Percentiles",
-      "description": "P50, P90, P99 upstream proxy latency",
+      "description": "P50, P90, P99 upstream proxy latency, per gate",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -826,19 +860,19 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(mcpgate_proxy_request_duration_seconds_bucket{job=\"mcp-gate\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(mcpgate_proxy_request_duration_seconds_bucket{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval])) by (le, service))",
           "refId": "A",
-          "legendFormat": "p50"
+          "legendFormat": "{{service}} p50"
         },
         {
-          "expr": "histogram_quantile(0.90, sum(rate(mcpgate_proxy_request_duration_seconds_bucket{job=\"mcp-gate\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.90, sum(rate(mcpgate_proxy_request_duration_seconds_bucket{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval])) by (le, service))",
           "refId": "B",
-          "legendFormat": "p90"
+          "legendFormat": "{{service}} p90"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(mcpgate_proxy_request_duration_seconds_bucket{job=\"mcp-gate\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(mcpgate_proxy_request_duration_seconds_bucket{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval])) by (le, service))",
           "refId": "C",
-          "legendFormat": "p99"
+          "legendFormat": "{{service}} p99"
         }
       ]
     },
@@ -847,7 +881,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "Upstream Status Codes",
-      "description": "Upstream response status codes over time",
+      "description": "Upstream response status codes over time, per gate",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -878,9 +912,9 @@
       },
       "targets": [
         {
-          "expr": "sum by (status_code) (rate(mcpgate_proxy_requests_total{job=\"mcp-gate\"}[$__rate_interval]))",
+          "expr": "sum by (status_code, service) (rate(mcpgate_proxy_requests_total{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval]))",
           "refId": "A",
-          "legendFormat": "{{status_code}}"
+          "legendFormat": "{{service}} {{status_code}}"
         }
       ]
     },
@@ -902,7 +936,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "JWKS Keys Loaded",
-      "description": "Number of cached JWKS signing keys. Zero means mcp-gate cannot validate any JWT.",
+      "description": "Number of cached JWKS signing keys, per gate. Zero means that gate cannot validate any JWT.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -947,9 +981,9 @@
       },
       "targets": [
         {
-          "expr": "mcpgate_jwks_keys_loaded{job=\"mcp-gate\"}",
+          "expr": "mcpgate_jwks_keys_loaded{job=\"mcp-gate\", service=~\"$service\"}",
           "refId": "A",
-          "legendFormat": "keys"
+          "legendFormat": "{{service}}"
         }
       ]
     },
@@ -958,7 +992,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "Refresh Errors",
-      "description": "JWKS refresh failures within the dashboard time range (liveness signal)",
+      "description": "JWKS refresh failures within the dashboard time range, per gate (liveness signal)",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1007,9 +1041,9 @@
       },
       "targets": [
         {
-          "expr": "increase(mcpgate_jwks_refresh_errors_total{job=\"mcp-gate\"}[$__range])",
+          "expr": "increase(mcpgate_jwks_refresh_errors_total{job=\"mcp-gate\", service=~\"$service\"}[$__range])",
           "refId": "A",
-          "legendFormat": "errors",
+          "legendFormat": "{{service}}",
           "instant": true,
           "range": false
         }
@@ -1020,7 +1054,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "Time Since Key Change",
-      "description": "Duration since the JWKS key set last changed (correctness signal — stale may indicate stuck refresh)",
+      "description": "Duration since the JWKS key set last changed, per gate (correctness signal — stale may indicate stuck refresh)",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1070,9 +1104,9 @@
       },
       "targets": [
         {
-          "expr": "time() - mcpgate_jwks_last_key_change_timestamp_seconds{job=\"mcp-gate\"}",
+          "expr": "time() - mcpgate_jwks_last_key_change_timestamp_seconds{job=\"mcp-gate\", service=~\"$service\"}",
           "refId": "A",
-          "legendFormat": "age"
+          "legendFormat": "{{service}}"
         }
       ]
     },
@@ -1081,7 +1115,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "JWKS Refresh Error Rate",
-      "description": "Rate of JWKS refresh failures over time",
+      "description": "Rate of JWKS refresh failures over time, per gate",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1112,9 +1146,9 @@
       },
       "targets": [
         {
-          "expr": "rate(mcpgate_jwks_refresh_errors_total{job=\"mcp-gate\"}[$__rate_interval])",
+          "expr": "rate(mcpgate_jwks_refresh_errors_total{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval])",
           "refId": "A",
-          "legendFormat": "errors/s"
+          "legendFormat": "{{service}}"
         }
       ]
     },
@@ -1123,7 +1157,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "JWKS Keys Loaded Over Time",
-      "description": "Cached JWKS signing-key count over time",
+      "description": "Cached JWKS signing-key count over time, per gate",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1157,9 +1191,9 @@
       },
       "targets": [
         {
-          "expr": "mcpgate_jwks_keys_loaded{job=\"mcp-gate\"}",
+          "expr": "mcpgate_jwks_keys_loaded{job=\"mcp-gate\", service=~\"$service\"}",
           "refId": "A",
-          "legendFormat": "keys"
+          "legendFormat": "{{service}}"
         }
       ]
     },
@@ -1173,7 +1207,7 @@
           "transparent": false,
           "repeatDirection": "h",
           "title": "MCP Calls by Method",
-          "description": "Request rate per MCP method, from the Mcp-Method header. A sustained 'other' line means a method outside the 2026-07-28 core set is in use — an extension (e.g. tasks/*) or a client sending a method removed in this revision. Add it to mcpMethodLabel if it is legitimate.",
+          "description": "Request rate per MCP method, from the Mcp-Method header, split per gate. A sustained 'other' line means a method outside the 2026-07-28 core set is in use — an extension (e.g. tasks/*) or a client sending a method removed in this revision. Add it to mcpMethodLabel if it is legitimate.",
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
@@ -1207,9 +1241,9 @@
           },
           "targets": [
             {
-              "expr": "sum by (mcp_method) (rate(mcpgate_mcp_requests_total{job=\"mcp-gate\"}[$__rate_interval]))",
+              "expr": "sum by (mcp_method, service) (rate(mcpgate_mcp_requests_total{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval]))",
               "refId": "A",
-              "legendFormat": "{{mcp_method}}"
+              "legendFormat": "{{service}} {{mcp_method}}"
             }
           ]
         },
@@ -1218,7 +1252,7 @@
           "transparent": false,
           "repeatDirection": "h",
           "title": "MCP Protocol Version Mix",
-          "description": "Request rate per protocol revision, from the MCP-Protocol-Version header. 'absent' is every client predating 2025-06-18 (when the header was introduced) plus any non-MCP traffic on the proxy route; watching it fall is how you know clients have migrated. mcp-gate itself is version-agnostic and never rejects on this value.",
+          "description": "Request rate per protocol revision, from the MCP-Protocol-Version header, split per gate. 'absent' is every client predating 2025-06-18 (when the header was introduced) plus any non-MCP traffic on the proxy route; watching it fall is how you know clients have migrated. mcp-gate itself is version-agnostic and never rejects on this value. Per-gate split also shows migration progressing at different rates behind different upstreams.",
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
@@ -1249,9 +1283,9 @@
           },
           "targets": [
             {
-              "expr": "sum by (protocol_version) (rate(mcpgate_mcp_requests_total{job=\"mcp-gate\"}[$__rate_interval]))",
+              "expr": "sum by (protocol_version, service) (rate(mcpgate_mcp_requests_total{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval]))",
               "refId": "A",
-              "legendFormat": "{{protocol_version}}"
+              "legendFormat": "{{service}} {{protocol_version}}"
             }
           ]
         },
@@ -1260,7 +1294,7 @@
           "transparent": false,
           "repeatDirection": "h",
           "title": "MCP Method Distribution",
-          "description": "Share of MCP calls by method over the selected time range",
+          "description": "Share of MCP calls by method over the selected time range, split per gate",
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
@@ -1273,9 +1307,9 @@
           },
           "targets": [
             {
-              "expr": "sum by (mcp_method) (increase(mcpgate_mcp_requests_total{job=\"mcp-gate\"}[$__range]))",
+              "expr": "sum by (mcp_method, service) (increase(mcpgate_mcp_requests_total{job=\"mcp-gate\", service=~\"$service\"}[$__range]))",
               "refId": "A",
-              "legendFormat": "{{mcp_method}}",
+              "legendFormat": "{{service}} {{mcp_method}}",
               "instant": true,
               "range": false
             }
@@ -1300,7 +1334,7 @@
           "transparent": false,
           "repeatDirection": "h",
           "title": "Goroutines",
-          "description": "Current goroutine count. Sustained growth suggests a goroutine leak.",
+          "description": "Current goroutine count, per gate. Sustained growth suggests a goroutine leak.",
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
@@ -1350,9 +1384,9 @@
           },
           "targets": [
             {
-              "expr": "go_goroutines{job=\"mcp-gate\"}",
+              "expr": "go_goroutines{job=\"mcp-gate\", service=~\"$service\"}",
               "refId": "A",
-              "legendFormat": "goroutines"
+              "legendFormat": "{{service}}"
             }
           ]
         },
@@ -1361,7 +1395,7 @@
           "transparent": false,
           "repeatDirection": "h",
           "title": "FD Utilization",
-          "description": "Open file descriptors as fraction of process_max_fds. Approaches 1.0 = FD exhaustion imminent.",
+          "description": "Open file descriptors as fraction of process_max_fds, per gate. Approaches 1.0 = FD exhaustion imminent.",
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
@@ -1412,9 +1446,9 @@
           },
           "targets": [
             {
-              "expr": "process_open_fds{job=\"mcp-gate\"} / process_max_fds{job=\"mcp-gate\"}",
+              "expr": "process_open_fds{job=\"mcp-gate\", service=~\"$service\"} / process_max_fds{job=\"mcp-gate\", service=~\"$service\"}",
               "refId": "A",
-              "legendFormat": "fd util"
+              "legendFormat": "{{service}}"
             }
           ]
         },
@@ -1423,7 +1457,7 @@
           "transparent": false,
           "repeatDirection": "h",
           "title": "Resident Memory",
-          "description": "process_resident_memory_bytes. Sustained growth without plateau suggests a memory leak.",
+          "description": "process_resident_memory_bytes, per gate. Sustained growth without plateau suggests a memory leak.",
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
@@ -1456,9 +1490,9 @@
           },
           "targets": [
             {
-              "expr": "process_resident_memory_bytes{job=\"mcp-gate\"}",
+              "expr": "process_resident_memory_bytes{job=\"mcp-gate\", service=~\"$service\"}",
               "refId": "A",
-              "legendFormat": "rss"
+              "legendFormat": "{{service}}"
             }
           ]
         },
@@ -1467,7 +1501,7 @@
           "transparent": false,
           "repeatDirection": "h",
           "title": "GC Pause (rate)",
-          "description": "Sum of GC pause durations per second. High values indicate GC pressure.",
+          "description": "Sum of GC pause durations per second, per gate. High values indicate GC pressure.",
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
@@ -1518,9 +1552,9 @@
           },
           "targets": [
             {
-              "expr": "rate(go_gc_duration_seconds_sum{job=\"mcp-gate\"}[$__rate_interval])",
+              "expr": "rate(go_gc_duration_seconds_sum{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval])",
               "refId": "A",
-              "legendFormat": "gc pause/s"
+              "legendFormat": "{{service}}"
             }
           ]
         },
@@ -1529,7 +1563,7 @@
           "transparent": false,
           "repeatDirection": "h",
           "title": "Goroutines Over Time",
-          "description": "Goroutine count over time — stable baseline + spikes during bursts is healthy; monotonic growth is a leak.",
+          "description": "Goroutine count over time, per gate — stable baseline + spikes during bursts is healthy; monotonic growth is a leak.",
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
@@ -1554,9 +1588,9 @@
           },
           "targets": [
             {
-              "expr": "go_goroutines{job=\"mcp-gate\"}",
+              "expr": "go_goroutines{job=\"mcp-gate\", service=~\"$service\"}",
               "refId": "A",
-              "legendFormat": "goroutines"
+              "legendFormat": "{{service}}"
             }
           ]
         },
@@ -1565,7 +1599,7 @@
           "transparent": false,
           "repeatDirection": "h",
           "title": "Memory",
-          "description": "Resident set size vs Go heap allocations. RSS growth without heap growth suggests CGO/stack leaks.",
+          "description": "Resident set size vs Go heap allocations, per gate. RSS growth without heap growth suggests CGO/stack leaks.",
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
@@ -1596,19 +1630,19 @@
           },
           "targets": [
             {
-              "expr": "process_resident_memory_bytes{job=\"mcp-gate\"}",
+              "expr": "process_resident_memory_bytes{job=\"mcp-gate\", service=~\"$service\"}",
               "refId": "A",
-              "legendFormat": "rss"
+              "legendFormat": "{{service}} rss"
             },
             {
-              "expr": "go_memstats_heap_alloc_bytes{job=\"mcp-gate\"}",
+              "expr": "go_memstats_heap_alloc_bytes{job=\"mcp-gate\", service=~\"$service\"}",
               "refId": "B",
-              "legendFormat": "heap alloc"
+              "legendFormat": "{{service}} heap alloc"
             },
             {
-              "expr": "go_memstats_heap_inuse_bytes{job=\"mcp-gate\"}",
+              "expr": "go_memstats_heap_inuse_bytes{job=\"mcp-gate\", service=~\"$service\"}",
               "refId": "C",
-              "legendFormat": "heap in-use"
+              "legendFormat": "{{service}} heap in-use"
             }
           ]
         }
@@ -1631,7 +1665,7 @@
           "transparent": false,
           "repeatDirection": "h",
           "title": "Recent Traces",
-          "description": "Recent traces (excludes health checks)",
+          "description": "Recent traces for the selected gate(s), excluding health checks. Requires OTEL_EXPORTER_OTLP_ENDPOINT to be set on the gate AND the collector behind it to forward to Tempo — an empty panel with healthy gates usually means the collector is not exporting, not that mcp-gate stopped tracing. mcpgate_otel_spans_dropped_total cannot confirm this either way: it is a placeholder that never increments (internal/otel).",
           "datasource": {
             "type": "tempo",
             "uid": "${DS_TEMPO}"
@@ -1647,7 +1681,7 @@
               "refId": "A",
               "filters": [],
               "queryType": "traceqlSearch",
-              "query": "{resource.service.name=\"mcp-gate\" && name !~ \".*healthz.*\"}",
+              "query": "{resource.service.name=~\"$service\" && name !~ \".*healthz.*\"}",
               "limit": 20
             }
           ]
@@ -1679,7 +1713,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "Log Volume",
-      "description": "Log volume by level (excludes health checks)",
+      "description": "Log volume by level, per gate (excludes health checks)",
       "datasource": {
         "type": "loki",
         "uid": "${DS_LOKI}"
@@ -1710,9 +1744,9 @@
       },
       "targets": [
         {
-          "expr": "sum by (level) (count_over_time({service_name=\"mcp-gate\"} | json | path!=\"/healthz\" [$__auto]))",
+          "expr": "sum by (level, service_name) (count_over_time({service_name=~\"$service\"} | json | path!=\"/healthz\" [$__auto]))",
           "refId": "A",
-          "legendFormat": "{{level}}"
+          "legendFormat": "{{service_name}} {{level}}"
         }
       ]
     },
@@ -1721,7 +1755,7 @@
       "transparent": false,
       "repeatDirection": "h",
       "title": "Live Logs",
-      "description": "Live log stream (excludes health checks)",
+      "description": "Live log stream, all selected gates (excludes health checks)",
       "datasource": {
         "type": "loki",
         "uid": "${DS_LOKI}"
@@ -1745,7 +1779,7 @@
       },
       "targets": [
         {
-          "expr": "{service_name=\"mcp-gate\"} | json | path!=\"/healthz\"",
+          "expr": "{service_name=~\"$service\"} | json | path!=\"/healthz\"",
           "refId": "A"
         }
       ]
