@@ -8,6 +8,26 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.19.5] - 2026-08-13
+
+### Maintenance
+
+- chore(deps): update dependency tsx to v4.23.12 (#206)
+- chore(deps): update https://github.com/golangci/golangci-lint-action digest to ba0d7d2
+- chore(deps): update ghcr.io/renovatebot/renovate:43 docker digest to 3b72fc4
+- chore(deps): update docker/setup-buildx-action digest to bb05f3f
+- chore(deps): update docker/login-action digest to dbcb813
+- chore(deps): update docker/build-push-action digest to 53b7df9
+- chore(deps): update docker dependencies (#200)
+- chore(deps): update catthehacker/ubuntu:act-22.04 docker digest to 83f119b (#199)
+- chore(deps): update actions/checkout digest to 3d3c42e (#198)
+
+## [0.19.4] - 2026-08-12
+
+### Maintenance
+
+- chore(changelog): update for v0.19.4
+
 ## [0.19.3] - 2026-08-11
 
 ### Fixes
@@ -828,6 +848,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.19.5]: https://github.com/c-premus/mcp-gate/compare/v0.19.4...v0.19.5
 [0.19.4]: https://github.com/c-premus/mcp-gate/compare/v0.19.3...v0.19.4
 [0.19.3]: https://github.com/c-premus/mcp-gate/compare/v0.19.2...v0.19.3
 [0.19.2]: https://github.com/c-premus/mcp-gate/compare/v0.19.1...v0.19.2
