@@ -8,10 +8,17 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.19.6] - 2026-08-14
+
+### Fixes
+
+- fix(deps): bump Go 1.26.5 to 1.26.6 for 7 reachable stdlib CVEs
+
 ## [0.19.5] - 2026-08-13
 
 ### Maintenance
 
+- chore(changelog): update for v0.19.5
 - chore(deps): update dependency tsx to v4.23.12 (#206)
 - chore(deps): update https://github.com/golangci/golangci-lint-action digest to ba0d7d2
 - chore(deps): update ghcr.io/renovatebot/renovate:43 docker digest to 3b72fc4
@@ -848,6 +855,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.19.6]: https://github.com/c-premus/mcp-gate/compare/v0.19.5...v0.19.6
 [0.19.5]: https://github.com/c-premus/mcp-gate/compare/v0.19.4...v0.19.5
 [0.19.4]: https://github.com/c-premus/mcp-gate/compare/v0.19.3...v0.19.4
 [0.19.3]: https://github.com/c-premus/mcp-gate/compare/v0.19.2...v0.19.3
