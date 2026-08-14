@@ -8,11 +8,21 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.19.7] - 2026-08-14
+
+### Fixes
+
+- fix(ci): deploy both gates, and actually lint the Forgejo workflows
+
 ## [0.19.6] - 2026-08-14
 
 ### Fixes
 
 - fix(deps): bump Go 1.26.5 to 1.26.6 for 7 reachable stdlib CVEs
+
+### Maintenance
+
+- chore(changelog): update for v0.19.6
 
 ## [0.19.5] - 2026-08-13
 
@@ -855,6 +865,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.19.7]: https://github.com/c-premus/mcp-gate/compare/v0.19.6...v0.19.7
 [0.19.6]: https://github.com/c-premus/mcp-gate/compare/v0.19.5...v0.19.6
 [0.19.5]: https://github.com/c-premus/mcp-gate/compare/v0.19.4...v0.19.5
 [0.19.4]: https://github.com/c-premus/mcp-gate/compare/v0.19.3...v0.19.4
