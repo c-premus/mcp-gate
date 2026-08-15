@@ -14,6 +14,10 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - fix(ci): deploy both gates, and actually lint the Forgejo workflows
 
+### Maintenance
+
+- chore(changelog): update for v0.19.7
+
 ## [0.19.6] - 2026-08-14
 
 ### Fixes
@@ -865,6 +869,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.19.8]: https://github.com/c-premus/mcp-gate/compare/v0.19.7...v0.19.8
 [0.19.7]: https://github.com/c-premus/mcp-gate/compare/v0.19.6...v0.19.7
 [0.19.6]: https://github.com/c-premus/mcp-gate/compare/v0.19.5...v0.19.6
 [0.19.5]: https://github.com/c-premus/mcp-gate/compare/v0.19.4...v0.19.5
