@@ -8,6 +8,18 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.19.9] - 2026-08-16
+
+### Maintenance
+
+- chore(deps): update catthehacker/ubuntu:act-22.04 docker digest to 3488f78 (#207)
+
+## [0.19.8] - 2026-08-15
+
+### Maintenance
+
+- chore(changelog): update for v0.19.8
+
 ## [0.19.7] - 2026-08-14
 
 ### Fixes
@@ -869,6 +881,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.19.9]: https://github.com/c-premus/mcp-gate/compare/v0.19.8...v0.19.9
 [0.19.8]: https://github.com/c-premus/mcp-gate/compare/v0.19.7...v0.19.8
 [0.19.7]: https://github.com/c-premus/mcp-gate/compare/v0.19.6...v0.19.7
 [0.19.6]: https://github.com/c-premus/mcp-gate/compare/v0.19.5...v0.19.6
