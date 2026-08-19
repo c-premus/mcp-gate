@@ -8,10 +8,17 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.19.13] - 2026-08-19
+
+### Maintenance
+
+- chore(deps): update docker/setup-buildx-action digest to 37fe631
+
 ## [0.19.12] - 2026-08-19
 
 ### Maintenance
 
+- chore(changelog): update for v0.19.12
 - chore(deps): update module github.com/moby/go-archive to v0.3.0 [security] (#211)
 
 ## [0.19.11] - 2026-08-18
@@ -903,6 +910,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.19.13]: https://github.com/c-premus/mcp-gate/compare/v0.19.12...v0.19.13
 [0.19.12]: https://github.com/c-premus/mcp-gate/compare/v0.19.11...v0.19.12
 [0.19.11]: https://github.com/c-premus/mcp-gate/compare/v0.19.10...v0.19.11
 [0.19.10]: https://github.com/c-premus/mcp-gate/compare/v0.19.9...v0.19.10
