@@ -38,3 +38,9 @@ grafana/dist/
 # Environment (secrets)
 .env
 *.env.local
+
+# Devcontainer CLI lock file — regenerated on every rebuild from the pinned
+# image digests already tracked in .devcontainer/docker-compose.yaml, and it
+# does not publish (the whole .devcontainer/ tree is scrubbed from the GitHub
+# mirror). Tracking it would produce churn with no consumer.
+.devcontainer/devcontainer-lock.json
