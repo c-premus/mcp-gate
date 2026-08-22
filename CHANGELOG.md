@@ -8,10 +8,19 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.19.15] - 2026-08-22
+
+### Maintenance
+
+- chore(deps): update gcr.io/distroless/static-debian12 docker digest to d75cdd7 (#215)
+- chore: gitignore the devcontainer lock file
+- chore(deps): update go toolchain to v1.27.0 (#213)
+
 ## [0.19.14] - 2026-08-21
 
 ### Maintenance
 
+- chore(changelog): update for v0.19.14
 - chore(deps): update redis:8-alpine docker digest to becdda6 (#214)
 
 ## [0.19.13] - 2026-08-19
@@ -917,6 +926,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.19.15]: https://github.com/c-premus/mcp-gate/compare/v0.19.14...v0.19.15
 [0.19.14]: https://github.com/c-premus/mcp-gate/compare/v0.19.13...v0.19.14
 [0.19.13]: https://github.com/c-premus/mcp-gate/compare/v0.19.12...v0.19.13
 [0.19.12]: https://github.com/c-premus/mcp-gate/compare/v0.19.11...v0.19.12
