@@ -40,6 +40,15 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      # `go mod download` is satisfied by a SUPERSET of what the module needs,
+      # so it cannot see a stale go.sum. Renovate rewrites the version in
+      # go.mod and appends the new sums without pruning the ones they replace,
+      # which had left 117 dead lines across 43 modules by 2026-08-26. `-diff`
+      # writes nothing -- it exits non-zero printing the diff -- so this gates
+      # the tree without mutating it.
+      - name: Verify go.mod and go.sum are tidy
+        run: go mod tidy -diff
+
       - name: Run tests
         run: go test -race -coverprofile=coverage.out ./...
 
