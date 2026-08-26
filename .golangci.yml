@@ -1,5 +1,18 @@
 version: "2"
 
+# Analyse at the module's LANGUAGE FLOOR, not at the toolchain it builds with.
+# go.mod deliberately splits the two (`go 1.26` + `toolchain go1.27.0`) so that
+# CodeQL's Go extractor can analyse this module with the runner image's own Go —
+# see go.mod and systemPatterns.md, "The `go` Directive Is CodeQL's Language
+# Version". Without this, golangci-lint takes its targeted version from the
+# `toolchain` directive (verified 2026-08-26: a probe module with `go 1.26`
+# alone lints clean under a go1.26-built binary, and refuses to load its config
+# once `toolchain go1.27.0` is added), which is a version the code must NOT be
+# written against.
+
+run:
+  go: "1.26"
+
 linters:
   default: none
   enable:
@@ -49,6 +62,14 @@ linters:
       - path: "cmd/mcp-gate/main\\.go"
         linters: [unparam]
         text: "run - result"
+      # modernize's errorsastype gates on whether errors.AsType EXISTS in the
+      # stdlib it loaded (the go1.27 toolchain), not on the module's language
+      # version — so it fires even with run.go pinned to the 1.26 floor above.
+      # Taking the suggestion breaks the build at the floor and, through it,
+      # CodeQL extraction. Drop this exclusion when the floor reaches 1.27.
+      - path: "internal/proxy/proxy\\.go"
+        linters: [modernize]
+        text: "errorsastype"
 
   settings:
     gocyclo:

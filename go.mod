@@ -1,6 +1,15 @@
 module github.com/c-premus/mcp-gate
 
-go 1.27.0
+// The `go` directive is a deliberately-lagging LANGUAGE FLOOR, not the version
+// this builds with -- see the `toolchain` line below and systemPatterns.md,
+// "The `go` Directive Is CodeQL's Language Version". CodeQL's Go extractor runs
+// with GOTOOLCHAIN=local against whatever Go the GitHub runner image carries,
+// so a floor above that (the image caches 1.24/1.25/1.26 as of 2026-08-26)
+// fails extraction outright and disables code scanning. Raise it only once
+// CodeQL ships support for the newer Go AND the runner images cache it.
+go 1.26
+
+toolchain go1.27.0
 
 require (
 	github.com/MicahParks/jwkset v0.11.3

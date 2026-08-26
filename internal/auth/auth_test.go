@@ -125,15 +125,19 @@ func signToken(t *testing.T, privKey *rsa.PrivateKey, claims jwt.Claims, headers
 // validClaims returns claims that pass all validation checks.
 func validClaims() auth.Claims {
 	now := time.Now()
+	// The embedded type is named explicitly: promoted-field composite literals
+	// are a Go 1.27 language feature and this module's floor is 1.26 (go.mod).
 	return auth.Claims{
-		Issuer:    testIssuer,
-		Audience:  jwt.ClaimStrings{testAudience},
-		ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
-		IssuedAt:  jwt.NewNumericDate(now),
-		NotBefore: jwt.NewNumericDate(now.Add(-time.Minute)),
-		ID:        "test-jti-123",
-		Subject:   "test-user",
-		Scope:     auth.Scopes{"openid", "profile"},
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    testIssuer,
+			Audience:  jwt.ClaimStrings{testAudience},
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now.Add(-time.Minute)),
+			ID:        "test-jti-123",
+			Subject:   "test-user",
+		},
+		Scope: auth.Scopes{"openid", "profile"},
 	}
 }
 

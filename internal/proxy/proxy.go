@@ -231,7 +231,10 @@ func New(upstreamURL *url.URL, tc TransportConfig) *httputil.ReverseProxy {
 			// the deploy alert watches. MCP 2026-07-28 also asks intermediaries
 			// to "return an appropriate HTTP error status for validation
 			// failures".
-			if maxBytesErr, ok := errors.AsType[*http.MaxBytesError](err); ok {
+			// errors.As, not errors.AsType: the module's language floor is
+			// Go 1.26 so CodeQL's Go extractor can analyze it (see go.mod).
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
 				slog.Warn("request body exceeds limit",
 					"method", r.Method,
 					"path", r.URL.Path,
