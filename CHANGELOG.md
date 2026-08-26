@@ -8,10 +8,22 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.19.19] - 2026-08-26
+
+### Fixes
+
+- fix(ci): restore CodeQL analysis of the Go module
+
+### Maintenance
+
+- chore(renovate): tidy go.mod on dependency updates
+- chore: tidy go.mod and go.sum
+
 ## [0.19.18] - 2026-08-26
 
 ### Maintenance
 
+- chore(changelog): update for v0.19.18
 - chore(deps): update mcr.microsoft.com/devcontainers/go:dev-1.26 docker digest to aef43c2 (#218)
 
 ## [0.19.17] - 2026-08-25
@@ -947,6 +959,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.19.19]: https://github.com/c-premus/mcp-gate/compare/v0.19.18...v0.19.19
 [0.19.18]: https://github.com/c-premus/mcp-gate/compare/v0.19.17...v0.19.18
 [0.19.17]: https://github.com/c-premus/mcp-gate/compare/v0.19.16...v0.19.17
 [0.19.16]: https://github.com/c-premus/mcp-gate/compare/v0.19.15...v0.19.16
