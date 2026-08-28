@@ -8,6 +8,12 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.19.20] - 2026-08-28
+
+### Maintenance
+
+- chore(deps): update dependency golangci/golangci-lint to v2.13.2 (#220)
+
 ## [0.19.19] - 2026-08-26
 
 ### Fixes
@@ -16,6 +22,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 ### Maintenance
 
+- chore(changelog): update for v0.19.19
 - chore(renovate): tidy go.mod on dependency updates
 - chore: tidy go.mod and go.sum
 
@@ -959,6 +966,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.19.20]: https://github.com/c-premus/mcp-gate/compare/v0.19.19...v0.19.20
 [0.19.19]: https://github.com/c-premus/mcp-gate/compare/v0.19.18...v0.19.19
 [0.19.18]: https://github.com/c-premus/mcp-gate/compare/v0.19.17...v0.19.18
 [0.19.17]: https://github.com/c-premus/mcp-gate/compare/v0.19.16...v0.19.17
