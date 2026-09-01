@@ -8,11 +8,21 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.19.23] - 2026-09-01
+
+### Maintenance
+
+- chore(deps): update mcr.microsoft.com/devcontainers/go:dev-1.26 docker digest to 60cb97f (#224)
+
 ## [0.19.22] - 2026-08-30
 
 ### Fixes
 
 - fix(deps): update module go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp to v0.71.0 (#223)
+
+### Maintenance
+
+- chore(changelog): update for v0.19.22
 
 ## [0.19.21] - 2026-08-29
 
@@ -984,6 +994,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.19.23]: https://github.com/c-premus/mcp-gate/compare/v0.19.22...v0.19.23
 [0.19.22]: https://github.com/c-premus/mcp-gate/compare/v0.19.21...v0.19.22
 [0.19.21]: https://github.com/c-premus/mcp-gate/compare/v0.19.20...v0.19.21
 [0.19.20]: https://github.com/c-premus/mcp-gate/compare/v0.19.19...v0.19.20
