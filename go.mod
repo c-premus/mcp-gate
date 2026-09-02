@@ -9,7 +9,7 @@ module github.com/c-premus/mcp-gate
 // CodeQL ships support for the newer Go AND the runner images cache it.
 go 1.26
 
-toolchain go1.27.0
+toolchain go1.27.1
 
 require (
 	github.com/MicahParks/jwkset v0.11.3
