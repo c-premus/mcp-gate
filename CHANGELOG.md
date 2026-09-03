@@ -8,10 +8,18 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.19.25] - 2026-09-03
+
+### Maintenance
+
+- chore(deps): update module golang.org/x/crypto to v0.56.0 [security] (#228)
+- chore(deps): update golang:1.27.1-alpine docker digest to cf6fca6 (#227)
+
 ## [0.19.24] - 2026-09-02
 
 ### Maintenance
 
+- chore(changelog): update for v0.19.24
 - chore(deps): update go toolchain to v1.27.1 (#225)
 - chore(deps): update dependency tsx to v4.23.13 (#226)
 
@@ -1002,6 +1010,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.19.25]: https://github.com/c-premus/mcp-gate/compare/v0.19.24...v0.19.25
 [0.19.24]: https://github.com/c-premus/mcp-gate/compare/v0.19.23...v0.19.24
 [0.19.23]: https://github.com/c-premus/mcp-gate/compare/v0.19.22...v0.19.23
 [0.19.22]: https://github.com/c-premus/mcp-gate/compare/v0.19.21...v0.19.22
