@@ -8,10 +8,23 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.19.32] - 2026-09-18
+
+### Maintenance
+
+- chore(deps): update golang:1.27.1-alpine docker digest to 4cb7ac9 (#244)
+- chore(deps): update redis:8-alpine docker digest to bd999b5 (#243)
+- chore(deps): update golang:1.27.1-alpine docker digest to e9bbdf2 (#242)
+- chore(deps): update mcr.microsoft.com/devcontainers/go:dev-1.26 docker digest to a49322c (#241)
+- chore(deps): update docker/setup-buildx-action digest to f87e599 (#240)
+- chore(deps): update docker/setup-buildx-action digest to 594f3bf (#239)
+- chore(deps): update docker/build-push-action digest to c3c9e26 (#238)
+
 ## [0.19.31] - 2026-09-13
 
 ### Maintenance
 
+- chore(changelog): update for v0.19.31
 - chore(deps): update dependency @types/node to v24.13.4 (#237)
 
 ## [0.19.30] - 2026-09-10
@@ -1067,6 +1080,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.19.32]: https://github.com/c-premus/mcp-gate/compare/v0.19.31...v0.19.32
 [0.19.31]: https://github.com/c-premus/mcp-gate/compare/v0.19.30...v0.19.31
 [0.19.30]: https://github.com/c-premus/mcp-gate/compare/v0.19.29...v0.19.30
 [0.19.29]: https://github.com/c-premus/mcp-gate/compare/v0.19.28...v0.19.29
