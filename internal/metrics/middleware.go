@@ -33,14 +33,28 @@ func truncate(s string, maxBytes int) string {
 	return s[:cut] + "…(truncated)"
 }
 
-// RouteClassifier maps a request path to a bounded route label for metrics.
+// RouteClassifier maps a request to a bounded route label for metrics.
 //
 // This runs OUTSIDE the mux, so it must independently reproduce the mux's
 // routing decision or the route label lies about where a request went.
+//
+// That includes the METHOD, not just the path. The mux registers the metadata
+// document and /healthz as method-specific patterns ("GET /healthz"), so a
+// POST to either falls through to the catch-all and is proxied — authenticated,
+// and 401'd. Classifying on path alone labelled those as route="healthz",
+// producing a health route that emits 401s, and suppressed their MCP header
+// metrics, which are gated on route == "proxy". HEAD is included because
+// ServeMux routes HEAD to a "GET " pattern.
 func RouteClassifier(r *http.Request) string {
 	path := r.URL.Path
+	// The subtree 404 handler is registered without a method, so it claims
+	// every method; the two document routes are GET-only.
+	getOnly := r.Method == http.MethodGet || r.Method == http.MethodHead
 	switch {
 	case path == metadata.WellKnownPath:
+		if !getOnly {
+			return "proxy"
+		}
 		return "metadata"
 	// The mux serves the RFC 9728 §3.1 path-inserted form and answers 404 for
 	// the rest of the subtree; both are metadata traffic, not proxy traffic.
@@ -51,6 +65,9 @@ func RouteClassifier(r *http.Request) string {
 	case strings.HasPrefix(path, metadata.WellKnownPath+"/"):
 		return "metadata"
 	case path == "/healthz":
+		if !getOnly {
+			return "proxy"
+		}
 		return "healthz"
 	default:
 		return "proxy"
@@ -119,63 +136,80 @@ func Middleware(next http.Handler) http.Handler {
 			statusCode:     http.StatusOK,
 		}
 
-		next.ServeHTTP(rec, r)
-
-		duration := time.Since(start).Seconds()
-		status := strconv.Itoa(rec.statusCode)
-		method := methodLabel(r.Method)
-
-		HTTPRequestsTotal.WithLabelValues(method, route, status).Inc()
-		HTTPRequestDuration.WithLabelValues(method, route, status).Observe(duration)
-
-		// MCP request-metadata headers are only meaningful on proxied traffic;
-		// /healthz and the metadata endpoint never carry them. Recording only
-		// on the proxy route keeps "absent" meaning "an MCP client that didn't
-		// send it" rather than being swamped by health probes.
+		// Deferred, NOT sequential. httputil.ReverseProxy calls
+		// panic(http.ErrAbortHandler) when a response body copy fails
+		// mid-stream — which is every client disconnect and every
+		// SSE_IDLE_TIMEOUT fire — and net/http recovers it silently in
+		// conn.serve. Recording after next.ServeHTTP returns therefore skipped
+		// the entire block for exactly the traffic mcp-gate exists to carry:
+		// no count, no duration, no MCP labels, and no log line at all in Loki.
 		//
-		// Read-only: see the rule in mcp.go. These values are observed, never
-		// acted on.
-		mcpMethod, mcpName := "", ""
-		if route == "proxy" {
-			mcpMethod = r.Header.Get(HeaderMCPMethod)
-			mcpName = r.Header.Get(HeaderMCPName)
-			MCPRequestsTotal.WithLabelValues(
-				mcpMethodLabel(mcpMethod),
-				mcpProtocolVersionLabel(r.Header.Get(HeaderMCPProtocolVersion)),
-			).Inc()
-		}
+		// The proxy layer's own counter is incremented inside ModifyResponse,
+		// which runs before the copy, so it was unaffected — leaving
+		// mcpgate_proxy_requests_total permanently ahead of
+		// mcpgate_http_requests_total{route="proxy"} by the number of aborted
+		// streams. That divergence is the regression signal; it was 72 per gate
+		// when this was found. ratelimit.ConcurrentLimiter already defers its
+		// release for the same reason.
+		defer func() {
+			duration := time.Since(start).Seconds()
+			status := strconv.Itoa(rec.statusCode)
+			method := methodLabel(r.Method)
 
-		// Successful healthz probes fire every 30s from Docker + Traefik +
-		// Prometheus target checks; at info level that's ~thousands of lines
-		// per day of pure noise in Loki. Drop them to debug so operators only
-		// see healthz when something is actually wrong (non-2xx status).
-		logFn := slog.Info
-		if route == "healthz" && rec.statusCode == http.StatusOK {
-			logFn = slog.Debug
-		}
-		args := []any{
-			"method", r.Method,
-			"path", truncate(r.URL.Path, maxLoggedFieldBytes),
-			"status", rec.statusCode,
-			"duration_ms", int(duration*1000),
-			"client_ip", realip.FromContext(r),
-			"user_agent", truncate(r.Header.Get("User-Agent"), maxLoggedFieldBytes),
-		}
-		// Only attach MCP fields when the client actually sent them, so log
-		// lines from non-MCP traffic don't carry empty keys.
-		if mcpMethod != "" {
-			args = append(args, "mcp_method", truncate(mcpMethod, maxLoggedFieldBytes))
-		}
-		if mcpName != "" {
-			// Logged raw and truncated — never Base64-decoded. See
-			// isBase64Sentinel for why. Unlike the metric label, mcp_name is
-			// unbounded (for resources/read it carries params.uri), which is
-			// exactly why it is a log field and not a label.
-			args = append(args,
-				"mcp_name", truncate(mcpName, maxLoggedFieldBytes),
-				"mcp_name_encoded", isBase64Sentinel(mcpName),
-			)
-		}
-		logFn("request", args...)
+			HTTPRequestsTotal.WithLabelValues(method, route, status).Inc()
+			HTTPRequestDuration.WithLabelValues(method, route, status).Observe(duration)
+
+			// MCP request-metadata headers are only meaningful on proxied traffic;
+			// /healthz and the metadata endpoint never carry them. Recording only
+			// on the proxy route keeps "absent" meaning "an MCP client that didn't
+			// send it" rather than being swamped by health probes.
+			//
+			// Read-only: see the rule in mcp.go. These values are observed, never
+			// acted on.
+			mcpMethod, mcpName := "", ""
+			if route == "proxy" {
+				mcpMethod = r.Header.Get(HeaderMCPMethod)
+				mcpName = r.Header.Get(HeaderMCPName)
+				MCPRequestsTotal.WithLabelValues(
+					mcpMethodLabel(mcpMethod),
+					mcpProtocolVersionLabel(r.Header.Get(HeaderMCPProtocolVersion)),
+				).Inc()
+			}
+
+			// Successful healthz probes fire every 30s from Docker + Traefik +
+			// Prometheus target checks; at info level that's ~thousands of lines
+			// per day of pure noise in Loki. Drop them to debug so operators only
+			// see healthz when something is actually wrong (non-2xx status).
+			logFn := slog.Info
+			if route == "healthz" && rec.statusCode == http.StatusOK {
+				logFn = slog.Debug
+			}
+			args := []any{
+				"method", r.Method,
+				"path", truncate(r.URL.Path, maxLoggedFieldBytes),
+				"status", rec.statusCode,
+				"duration_ms", int(duration * 1000),
+				"client_ip", realip.FromContext(r),
+				"user_agent", truncate(r.Header.Get("User-Agent"), maxLoggedFieldBytes),
+			}
+			// Only attach MCP fields when the client actually sent them, so log
+			// lines from non-MCP traffic don't carry empty keys.
+			if mcpMethod != "" {
+				args = append(args, "mcp_method", truncate(mcpMethod, maxLoggedFieldBytes))
+			}
+			if mcpName != "" {
+				// Logged raw and truncated — never Base64-decoded. See
+				// isBase64Sentinel for why. Unlike the metric label, mcp_name is
+				// unbounded (for resources/read it carries params.uri), which is
+				// exactly why it is a log field and not a label.
+				args = append(args,
+					"mcp_name", truncate(mcpName, maxLoggedFieldBytes),
+					"mcp_name_encoded", isBase64Sentinel(mcpName),
+				)
+			}
+			logFn("request", args...)
+		}()
+
+		next.ServeHTTP(rec, r)
 	})
 }

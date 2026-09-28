@@ -44,25 +44,33 @@ func FuzzRouteClassifier(f *testing.F) {
 		"/Grä",                          // unicode
 		"/\xff\xfe",                     // invalid UTF-8
 	}
-	for _, s := range seeds {
-		f.Add(s)
+	// The classifier reads the method as well as the path (it has to agree
+	// with the mux, whose document routes are method-specific), so the method
+	// is fuzzed too — a method-dependent branch could otherwise emit an
+	// out-of-set label without any seed noticing.
+	methods := []string{
+		http.MethodGet, http.MethodHead, http.MethodPost, http.MethodDelete,
+		"", "get", "PROPFIND", "\x00", strings.Repeat("M", 512),
+	}
+	for i, s := range seeds {
+		f.Add(s, methods[i%len(methods)])
 	}
 
-	f.Fuzz(func(t *testing.T, path string) {
+	f.Fuzz(func(t *testing.T, path, method string) {
 		// Build the request directly with a hand-constructed URL so the URL
 		// parser doesn't reject pathological fuzz inputs (control bytes,
 		// invalid UTF-8) that net/http would otherwise filter on the wire.
 		// RouteClassifier only reads r.URL.Path, so that field is all that
 		// matters here.
 		r := &http.Request{
-			Method: http.MethodGet,
+			Method: method,
 			URL:    &url.URL{Path: path},
 		}
 
 		got := RouteClassifier(r)
 		if !slices.Contains(validRouteLabels, got) {
-			t.Fatalf("RouteClassifier returned out-of-set label %q; path=%q valid=%v",
-				got, path, validRouteLabels)
+			t.Fatalf("RouteClassifier returned out-of-set label %q; method=%q path=%q valid=%v",
+				got, method, path, validRouteLabels)
 		}
 	})
 }

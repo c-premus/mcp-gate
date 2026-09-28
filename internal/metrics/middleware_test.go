@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"bytes"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -306,5 +307,96 @@ func TestMiddleware_LogsMCPFields(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestRouteClassifier_MethodAwareness pins that the classifier agrees with the
+// mux on METHOD, not just path. main.go registers the metadata document and
+// /healthz as method-specific patterns ("GET /healthz"), so a POST to either
+// falls through to the catch-all and is proxied. Labelling those "healthz" /
+// "metadata" produced a health route that emitted 401s and suppressed the MCP
+// header metrics, which are gated on route == "proxy".
+func TestRouteClassifier_MethodAwareness(t *testing.T) {
+	t.Parallel()
+	const wellKnown = "/.well-known/oauth-protected-resource"
+	tests := []struct {
+		method string
+		path   string
+		want   string
+	}{
+		// GET and HEAD reach the document handlers — ServeMux routes HEAD to a
+		// "GET " pattern deliberately.
+		{http.MethodGet, "/healthz", "healthz"},
+		{http.MethodHead, "/healthz", "healthz"},
+		{http.MethodGet, wellKnown, "metadata"},
+		{http.MethodHead, wellKnown, "metadata"},
+
+		// Everything else falls through to the catch-all and is proxied.
+		{http.MethodPost, "/healthz", "proxy"},
+		{http.MethodPut, "/healthz", "proxy"},
+		{http.MethodDelete, "/healthz", "proxy"},
+		{http.MethodPost, wellKnown, "proxy"},
+
+		// The subtree 404 handler is registered WITHOUT a method, so it claims
+		// every method and stays metadata traffic regardless.
+		{http.MethodPost, wellKnown + "/mcp", "metadata"},
+		{http.MethodGet, wellKnown + "/mcp", "metadata"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			t.Parallel()
+			r := httptest.NewRequestWithContext(t.Context(), tt.method, tt.path, http.NoBody)
+			if got := RouteClassifier(r); got != tt.want {
+				t.Errorf("RouteClassifier(%s %q) = %q, want %q", tt.method, tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestMiddleware_RecordsOnAbortHandlerPanic is the regression test for the
+// metrics blind spot that hid every aborted SSE stream.
+//
+// httputil.ReverseProxy calls panic(http.ErrAbortHandler) when a response body
+// copy fails mid-stream — a client disconnect, or SSE_IDLE_TIMEOUT firing — and
+// net/http recovers it silently. With the recording block running sequentially
+// after next.ServeHTTP, the panic unwound straight past it: no count, no
+// duration, no log line. Meanwhile the proxy layer's own counter had already
+// been incremented inside ModifyResponse, so mcpgate_proxy_requests_total ran
+// permanently ahead of mcpgate_http_requests_total{route="proxy"} by exactly
+// the number of aborted streams (72 per gate in production when found).
+//
+// The middleware must NOT swallow the panic — net/http's conn.serve is what
+// handles ErrAbortHandler, and recovering it here would change connection
+// teardown semantics.
+func TestMiddleware_RecordsOnAbortHandlerPanic(t *testing.T) {
+	const method, route, status = "GET", "proxy", "200"
+	before := testutil.ToFloat64(HTTPRequestsTotal.WithLabelValues(method, route, status))
+
+	h := Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Write first so the recorder captures 200, mirroring a stream that
+		// began successfully and then died.
+		_, _ = w.Write([]byte("partial stream"))
+		panic(http.ErrAbortHandler)
+	}))
+
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/mcp", http.NoBody)
+	w := httptest.NewRecorder()
+
+	func() {
+		defer func() {
+			rec := recover()
+			if rec == nil {
+				t.Fatal("middleware swallowed the panic; net/http must see ErrAbortHandler")
+			}
+			err, ok := rec.(error)
+			if !ok || !errors.Is(err, http.ErrAbortHandler) {
+				t.Fatalf("re-panicked with %v, want http.ErrAbortHandler", rec)
+			}
+		}()
+		h.ServeHTTP(w, r)
+	}()
+
+	if got := testutil.ToFloat64(HTTPRequestsTotal.WithLabelValues(method, route, status)) - before; got != 1 {
+		t.Errorf("HTTPRequestsTotal delta = %v, want 1 — an aborted stream was not counted", got)
 	}
 }
