@@ -277,6 +277,24 @@ func New(upstreamURL *url.URL, tc TransportConfig) *httputil.ReverseProxy {
 			resp.Header.Del("Server")
 			resp.Header.Del("X-Powered-By")
 
+			// The gate sets these four on the ResponseWriter before dispatch,
+			// but ReverseProxy merges upstream headers with copyHeader, which
+			// uses Add and not Set. An upstream that also sets any of them
+			// produced TWO values on the wire, and a duplicated
+			// X-Frame-Options is treated as invalid and ignored by several
+			// browsers — i.e. the protection silently disappeared rather than
+			// conflicting visibly. Deleting upstream's copy here makes the
+			// gate's value authoritative. Get() reads only the first value, so
+			// no test asserting on Get could have caught this.
+			for _, h := range []string{
+				"X-Content-Type-Options",
+				"X-Frame-Options",
+				"Content-Security-Policy",
+				"Referrer-Policy",
+			} {
+				resp.Header.Del(h)
+			}
+
 			if start, ok := resp.Request.Context().Value(contextKey{}).(time.Time); ok {
 				metrics.ProxyRequestDuration.Observe(time.Since(start).Seconds())
 			}
@@ -298,6 +316,18 @@ func New(upstreamURL *url.URL, tc TransportConfig) *httputil.ReverseProxy {
 			// this requirement.
 			if isSSE {
 				resp.Header.Set("X-Accel-Buffering", "no")
+			}
+
+			// A 101 response's body is the hijacked connection, and
+			// ReverseProxy.handleUpgradeResponse requires it to still satisfy
+			// io.ReadWriteCloser. Both wrappers below embed io.ReadCloser only,
+			// so wrapping a 101 made that type assertion fail and turned every
+			// protocol upgrade through mcp-gate into a 502 from a healthy
+			// upstream — counted twice, once as 101 in ModifyResponse and again
+			// as 502 in ErrorHandler. MCP streamable-http never upgrades, so
+			// this is latent here, but mcp-gate fronts arbitrary MCP servers.
+			if resp.StatusCode == http.StatusSwitchingProtocols {
+				return nil
 			}
 
 			// SSE idle timeout: wrap the body so a silent stream is force-closed

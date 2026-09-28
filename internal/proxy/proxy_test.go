@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -1190,4 +1191,140 @@ func TestOversizedBodyReturns413(t *testing.T) {
 			t.Error("a request within the limit did not reach upstream")
 		}
 	})
+}
+
+// TestProtocolUpgradeNotBrokenByBodyWrapping pins that a 101 response survives
+// the proxy.
+//
+// ModifyResponse used to wrap resp.Body unconditionally in *countingBody, which
+// embeds io.ReadCloser only. ReverseProxy.handleUpgradeResponse requires the
+// 101 body to still satisfy io.ReadWriteCloser (it is the hijacked connection),
+// so the wrap made that type assertion fail: the client got a 502 from a
+// perfectly healthy upstream, and the request was counted twice in
+// mcpgate_proxy_requests_total — once as 101 from ModifyResponse, then again as
+// 502 from ErrorHandler.
+//
+// MCP streamable-http on 2026-07-28 is POST + SSE and never upgrades, so this
+// was latent for the reference deployment. It is not latent for mcp-gate as a
+// general-purpose proxy, which is how it is published.
+func TestProtocolUpgradeNotBrokenByBodyWrapping(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		conn, _, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			t.Errorf("upstream hijack: %v", err)
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		_, _ = conn.Write([]byte("HTTP/1.1 101 Switching Protocols\r\n" +
+			"Upgrade: websocket\r\nConnection: Upgrade\r\n\r\n"))
+		// Echo one line back over the upgraded connection so we can prove the
+		// tunnel is actually readable, not merely that the status was 101.
+		line, err := bufio.NewReader(conn).ReadString('\n')
+		if err == nil {
+			_, _ = conn.Write([]byte("echo:" + line))
+		}
+	}))
+	defer upstream.Close()
+
+	gate := httptest.NewServer(proxy.New(mustParseURL(t, upstream.URL), proxy.DefaultTransportConfig()))
+	defer gate.Close()
+
+	before502 := counterValue(t, metrics.ProxyRequestsTotal.WithLabelValues("502"))
+
+	var dialer net.Dialer
+	conn, err := dialer.DialContext(t.Context(), "tcp", strings.TrimPrefix(gate.URL, "http://"))
+	if err != nil {
+		t.Fatalf("dial gate: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	if _, err := conn.Write([]byte("GET / HTTP/1.1\r\nHost: gate\r\n" +
+		"Connection: Upgrade\r\nUpgrade: websocket\r\n\r\n")); err != nil {
+		t.Fatalf("write upgrade request: %v", err)
+	}
+
+	br := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(br, nil)
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	// A 101 body is the hijacked conn, closed via the deferred conn.Close
+	// above; closing it here too is harmless and satisfies bodyclose.
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("status = %d, want 101 (body wrapping broke the upgrade)", resp.StatusCode)
+	}
+
+	// The tunnel must carry bytes both ways.
+	if _, err := conn.Write([]byte("ping\n")); err != nil {
+		t.Fatalf("write through tunnel: %v", err)
+	}
+	echo, err := br.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read through tunnel: %v", err)
+	}
+	if echo != "echo:ping\n" {
+		t.Errorf("tunnel echo = %q, want %q", echo, "echo:ping\n")
+	}
+
+	if got := counterValue(t, metrics.ProxyRequestsTotal.WithLabelValues("502")) - before502; got != 0 {
+		t.Errorf("502 counter moved by %v on a successful upgrade, want 0", got)
+	}
+}
+
+// TestUpstreamSecurityHeadersDoNotDuplicate pins that the gate's security
+// headers stay single-valued when the upstream sets its own.
+//
+// ReverseProxy merges upstream headers with copyHeader, which uses Add and not
+// Set, so an upstream that sets X-Frame-Options produced two values on the
+// wire. Several browsers treat a duplicated X-Frame-Options as invalid and
+// ignore it outright — the protection disappears silently rather than
+// conflicting visibly. Header.Get reads only the first value, which is why no
+// existing test could catch this; this one asserts on Values().
+func TestUpstreamSecurityHeadersDoNotDuplicate(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Security-Policy", "default-src *")
+		w.Header().Set("Referrer-Policy", "unsafe-url")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	p := proxy.New(mustParseURL(t, upstream.URL), proxy.DefaultTransportConfig())
+
+	// Mirrors main.go's securityHeaders wrapper: the gate sets its values on
+	// the ResponseWriter before dispatching to the proxy.
+	gate := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		p.ServeHTTP(w, r)
+	}))
+	defer gate.Close()
+
+	resp, err := http.Get(gate.URL) //nolint:noctx // test-local request
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	want := map[string]string{
+		"X-Content-Type-Options":  "nosniff",
+		"X-Frame-Options":         "DENY",
+		"Content-Security-Policy": "default-src 'none'",
+		"Referrer-Policy":         "no-referrer",
+	}
+	for header, wantVal := range want {
+		vals := resp.Header.Values(header)
+		if len(vals) != 1 {
+			t.Errorf("%s has %d values %q, want exactly 1 (upstream's copy leaked through)",
+				header, len(vals), vals)
+			continue
+		}
+		if vals[0] != wantVal {
+			t.Errorf("%s = %q, want %q (the gate's value must win)", header, vals[0], wantVal)
+		}
+	}
 }
