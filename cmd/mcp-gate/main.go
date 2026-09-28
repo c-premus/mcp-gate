@@ -325,6 +325,19 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *
 	if err != nil {
 		return nil, fmt.Errorf("otel setup: %w", err)
 	}
+	// Same error-gated cleanup the metrics server gets above. Without it the
+	// six error-returns that follow (auth init, metadata handler, Redis ping,
+	// listen, and the two fatal server paths) leaked the BatchSpanProcessor
+	// goroutine and its OTLP client, while leaving the global tracer provider
+	// pointing at an abandoned provider. main() masks this with log.Fatalf;
+	// any caller that retries run() — tests do — accumulates both.
+	defer func() {
+		if err != nil {
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer stopCancel()
+			_ = otelProvider.Shutdown(stopCtx)
+		}
+	}()
 
 	// Build RFC 9728 metadata from config
 	meta := metadata.ProtectedResourceMetadata{
