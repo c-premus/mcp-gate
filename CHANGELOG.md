@@ -8,10 +8,29 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.20.0] - 2026-09-28
+
+### Features
+
+- feat(auth): account for scope hierarchies per MCP 2026-07-28
+
+### Fixes
+
+- fix(main): shut down the tracer provider on error paths
+- fix(metadata): answer HEAD on the metadata endpoint
+- fix(proxy): keep upgrades working and security headers single-valued
+- fix(metrics): record requests whose handler panicked
+- fix(release): publish :latest only from a tag ref
+
+### Maintenance
+
+- chore(deps): update mcr.microsoft.com/devcontainers/go:dev-1.26 docker digest to a8393b1 (#257)
+
 ## [0.19.36] - 2026-09-25
 
 ### Maintenance
 
+- chore(changelog): update for v0.19.36
 - chore(deps): update redis:8-alpine docker digest to 3811787 (#256)
 - chore(deps): update dependency golangci/golangci-lint to v2.14.0 (#255)
 
@@ -1116,6 +1135,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.20.0]: https://github.com/c-premus/mcp-gate/compare/v0.19.36...v0.20.0
 [0.19.36]: https://github.com/c-premus/mcp-gate/compare/v0.19.35...v0.19.36
 [0.19.35]: https://github.com/c-premus/mcp-gate/compare/v0.19.34...v0.19.35
 [0.19.34]: https://github.com/c-premus/mcp-gate/compare/v0.19.33...v0.19.34
