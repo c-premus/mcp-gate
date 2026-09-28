@@ -93,42 +93,52 @@ func TestHandler_GET_CacheControl(t *testing.T) {
 	}
 }
 
-func TestHandler_POST_Returns405(t *testing.T) {
+// TestHandler_Methods pins the handler's own method contract.
+//
+// Scope note: in production the mux registers this handler as "GET <path>" and
+// additionally registers the subtree, so POST/PUT/DELETE never actually reach
+// here — ServeMux resolves them first. These cases therefore pin the handler's
+// standalone contract, not observable gate behaviour; the reachable path is
+// covered at the mux level by TestRun_MetadataHEAD in cmd/mcp-gate.
+//
+// HEAD is the case that genuinely reaches the handler: ServeMux deliberately
+// routes HEAD to a "GET " pattern, so a HEAD probe used to get a hard 405 for a
+// document that exists. RFC 9110 §9.3.2 makes GET and HEAD support a MUST for
+// general-purpose servers.
+func TestHandler_Methods(t *testing.T) {
 	t.Parallel()
-	handler := mustHandler(t, testMetadata())
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/.well-known/oauth-protected-resource", http.NoBody)
-	w := httptest.NewRecorder()
-
-	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("expected 405, got %d", w.Code)
+	tests := []struct {
+		method   string
+		wantCode int
+	}{
+		{http.MethodGet, http.StatusOK},
+		{http.MethodHead, http.StatusOK},
+		{http.MethodPost, http.StatusMethodNotAllowed},
+		{http.MethodPut, http.StatusMethodNotAllowed},
+		{http.MethodDelete, http.StatusMethodNotAllowed},
+		{http.MethodPatch, http.StatusMethodNotAllowed},
 	}
-}
+	for _, tt := range tests {
+		t.Run(tt.method, func(t *testing.T) {
+			t.Parallel()
+			handler := mustHandler(t, testMetadata())
+			req := httptest.NewRequestWithContext(t.Context(), tt.method,
+				"/.well-known/oauth-protected-resource", http.NoBody)
+			w := httptest.NewRecorder()
 
-func TestHandler_PUT_Returns405(t *testing.T) {
-	t.Parallel()
-	handler := mustHandler(t, testMetadata())
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/.well-known/oauth-protected-resource", http.NoBody)
-	w := httptest.NewRecorder()
+			handler.ServeHTTP(w, req)
 
-	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("expected 405, got %d", w.Code)
-	}
-}
-
-func TestHandler_DELETE_Returns405(t *testing.T) {
-	t.Parallel()
-	handler := mustHandler(t, testMetadata())
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodDelete, "/.well-known/oauth-protected-resource", http.NoBody)
-	w := httptest.NewRecorder()
-
-	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("expected 405, got %d", w.Code)
+			if w.Code != tt.wantCode {
+				t.Fatalf("%s: got %d, want %d", tt.method, w.Code, tt.wantCode)
+			}
+			if tt.wantCode == http.StatusMethodNotAllowed {
+				// RFC 9110 §15.5.6: "The origin server MUST generate an Allow
+				// header field in a 405 response." http.Error does not.
+				if allow := w.Header().Get("Allow"); allow != "GET, HEAD" {
+					t.Errorf("%s: Allow = %q, want %q", tt.method, allow, "GET, HEAD")
+				}
+			}
+		})
 	}
 }
 

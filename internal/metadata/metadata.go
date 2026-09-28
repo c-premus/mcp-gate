@@ -77,7 +77,17 @@ func Handler(meta ProtectedResourceMetadata) (http.HandlerFunc, error) {
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
+		// HEAD as well as GET. RFC 9110 §9.3.2: "All general-purpose servers
+		// MUST support the methods GET and HEAD." Go's ServeMux deliberately
+		// routes HEAD to a "GET "-registered pattern, so a HEAD probe reaches
+		// this handler and used to get a hard 405 for a document that exists —
+		// breaking discovery clients and uptime monitors that probe with HEAD.
+		// net/http discards the body for HEAD itself, so the Write below is
+		// correct for both methods.
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			// RFC 9110 §15.5.6: "The origin server MUST generate an Allow
+			// header field in a 405 response." http.Error does not set one.
+			w.Header().Set("Allow", "GET, HEAD")
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}

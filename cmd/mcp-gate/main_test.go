@@ -493,7 +493,7 @@ func TestRun_SecurityHeadersOnAllRoutes(t *testing.T) {
 
 	expectedHeaders := map[string]string{
 		"X-Content-Type-Options":  "nosniff",
-		"X-Frame-Options":        "DENY",
+		"X-Frame-Options":         "DENY",
 		"Content-Security-Policy": "default-src 'none'",
 		"Referrer-Policy":         "no-referrer",
 	}
@@ -1054,7 +1054,7 @@ func TestLoadConfig_TrustedProxiesParsed(t *testing.T) {
 // "stage" attribute. shutdownStage emits a Warn with "stage" set on error,
 // so capturing those records in order tells us the actual shutdown sequence.
 type stageCapture struct {
-	mu    sync.Mutex
+	mu     sync.Mutex
 	stages []string
 	// orderedRecords keeps every record in the order it was logged; useful
 	// for diagnostics if stage assertions fail.
@@ -1844,5 +1844,57 @@ func TestRunHealthcheck_EnvWiring(t *testing.T) {
 	t.Setenv("LISTEN_ADDR", closedAddr)
 	if got := runHealthcheck(); got != 1 {
 		t.Errorf("runHealthcheck with closed server = %d, want 1", got)
+	}
+}
+
+// TestRun_MetadataHEAD pins the reachable HEAD path through the real mux.
+//
+// main.go registers the metadata document as "GET <path>". Go's ServeMux
+// routes HEAD to a "GET " pattern deliberately, so a HEAD probe DOES reach
+// metadata.Handler — which used to reject it with 405 for a document that
+// exists, breaking discovery clients and uptime monitors that probe with HEAD.
+// RFC 9110 §9.3.2 makes GET and HEAD support a MUST for general-purpose
+// servers.
+//
+// This is the mux-level counterpart to internal/metadata's TestHandler_Methods:
+// the POST/PUT/DELETE arms there are unreachable in production, this one is not.
+func TestRun_MetadataHEAD(t *testing.T) {
+	jwks := newTestJWKS(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
+	result, cancel, _ := startRun(t, &cfg)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodHead,
+		"http://"+result.Addr+"/.well-known/oauth-protected-resource", http.NoBody)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("HEAD: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("HEAD status = %d, want 200 — a HEAD probe must not 405 on a document that exists",
+			resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+
+	// net/http discards the body for HEAD itself; assert that it did, so the
+	// handler's shared write path stays correct for both methods.
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if len(body) != 0 {
+		t.Errorf("HEAD returned %d body bytes, want 0", len(body))
 	}
 }
