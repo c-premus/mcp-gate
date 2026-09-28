@@ -472,3 +472,170 @@ groups:
             mcp-gate hasn't refreshed yet, EXPECTED_AUDIENCE drift after a
             provider reconfig, or a misconfigured Claude.ai connector. Check
             recent authorization-server changes and the mcp-gate logs.
+
+  # Release-provenance rules. These are the only coverage for a gate that comes
+  # up on the wrong image WITHOUT the pipeline being involved — a compose
+  # recreate, a host reboot, a manual `docker compose up`. deploy.yaml's version
+  # gate can only see deploys it performed; on 2026-09-26 both gates were
+  # recreated ~31h after the last deploy run and came up on a locally cached
+  # poisoned `:latest`. No workflow step can observe that path.
+  #
+  # Unlike every other group in this file, these rules do NOT aggregate
+  # `by (service)`: they are cross-gate questions ("do the gates disagree?",
+  # "is any gate unidentifiable?"), so they carry no service label at all and
+  # their summaries name no instance.
+  - orgId: 1
+    name: mcp-gate-release
+    folder: mcp-gate
+    interval: 1m
+    rules:
+      - uid: mcp-gate-version-unidentified
+        title: mcp-gate Running an Unidentified Build
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              # mcpgate_info is a promauto gauge set once at startup, so it is
+              # present for the whole process lifetime — the property that makes
+              # it answerable at any time, unlike the startup log line.
+              expr: count(mcpgate_info{job="mcp-gate",version=~"dev|unknown|"}) or vector(0)
+              intervalMs: 1000
+              maxDataPoints: 43200
+              datasource:
+                type: prometheus
+                uid: prometheus
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              datasource:
+                type: __expr__
+                uid: __expr__
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: >-
+            A gate is running an image with no release identity
+          description: |
+            At least one mcp-gate reports mcpgate_info{version="dev"} (or an
+            empty version). The `:latest` tag points at a non-release build, so
+            there is no way to tell what code is in production and no way to
+            correlate a regression with a release.
+
+            Fix: re-point `:latest` at the intended release tag without
+            rebuilding, so the digest and its SBOM/provenance referrers survive:
+              docker buildx imagetools create \
+                -t git.example.com/chris/mcp-gate:latest \
+                git.example.com/chris/mcp-gate:vX.Y.Z
+            then dispatch deploy.yaml once per gate.
+
+      - uid: mcp-gate-version-skew
+        title: mcp-gate Gates Running Different Versions
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              # Number of DISTINCT versions across all gates in the job.
+              expr: count(count by (version) (mcpgate_info{job="mcp-gate"}))
+              intervalMs: 1000
+              maxDataPoints: 43200
+              datasource:
+                type: prometheus
+                uid: prometheus
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              datasource:
+                type: __expr__
+                uid: __expr__
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [1]
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+        noDataState: OK
+        execErrState: Alerting
+        # The gates deploy sequentially (~80s apart), so transient skew during a
+        # release is normal and expected. 30m is well clear of that window while
+        # still catching a gate that silently missed a deploy — which is exactly
+        # what happened before the per-gate deploy fix, shipping a 7-CVE stdlib
+        # patch to one gate and leaving the other vulnerable with a green release.
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: >-
+            mcp-gate gates are running different versions
+          description: |
+            More than one distinct mcpgate_info version label is present across
+            the job. One gate missed a deploy, or a rollback restored only one
+            of them. Compare with:
+              count by (version) (mcpgate_info{job="mcp-gate"})
+            then dispatch deploy.yaml for the lagging gate.

@@ -4,8 +4,17 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 ARG TARGETARCH=amd64
-ARG VERSION=dev
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
+# No default. A build that forgets --build-arg VERSION must FAIL, not silently
+# stamp an unidentifiable binary: mcpgate_info{version=...} is the only answer
+# to "what is actually deployed", and a `dev` value makes that question
+# unanswerable. Production ran such an image twice in Sept 2026 with every
+# health check green. Rejecting "dev" as well as empty closes the other half —
+# `var version = "dev"` in main.go is the fallback when ldflags never applied.
+ARG VERSION
+RUN case "${VERSION}" in \
+      ""|dev) echo "ERROR: build-arg VERSION must be set to a release version (got '${VERSION}')" >&2; exit 1 ;; \
+    esac && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
     -ldflags="-s -w -X main.version=${VERSION}" \
     -o /mcp-gate ./cmd/mcp-gate
 
