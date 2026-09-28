@@ -107,6 +107,49 @@ In many providers, the issuer URL and the authorization server URL are the same 
 | `READ_TIMEOUT` | `30s` | Inbound request read timeout |
 | `IDLE_TIMEOUT` | `120s` | Keep-alive idle timeout |
 | `MAX_HEADER_BYTES` | `131072` | Max request header size in bytes (128 KB) |
+| `SSE_IDLE_TIMEOUT` | `5m` | Force-close an SSE response stream after this much silence. Surfaces as `mcpgate_sse_disconnects_total{reason="idle_timeout"}` |
+| `JWKS_REFRESH_INTERVAL` | `1h` | Background JWKS refresh interval |
+| `SHUTDOWN_TIMEOUT` | `30s` | Graceful shutdown drain timeout, applied independently per stage |
+| `RESOURCE_NAME` | `MCP Server` | Human-readable `resource_name` in RFC 9728 metadata |
+
+### Distributed rate limiting (optional)
+
+Unset, the rate limiter is an in-process token bucket — which is **per-replica**:
+N replicas allow N × `RATE_LIMIT_RPS` per client. Setting `REDIS_ADDR` switches it
+to a Redis-backed GCRA limiter that coordinates globally.
+
+The variable is `REDIS_ADDR` (a bare `host:port`), **not** `REDIS_URL`. Each value
+is its own variable so a secrets manager can inject `REDIS_PASSWORD` verbatim:
+`:`, `@`, `/`, `#` and `?` are all valid in a Redis ACL password and all reserved
+in URL syntax, so rotation tooling that does not percent-encode breaks auth
+silently at the next rotation.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REDIS_ADDR` | *(empty)* | `host:port`. Empty = in-memory limiter |
+| `REDIS_USERNAME` | *(empty)* | Redis 6+ ACL username (empty = legacy `default` user) |
+| `REDIS_PASSWORD` | *(empty)* | Redis password |
+| `REDIS_DB` | `0` | Logical database index |
+| `REDIS_TIMEOUT` | `100ms` | Per-call deadline; **fails open** beyond it |
+| `REDIS_KEY_PREFIX` | `mcpgate:rl:` | Bucket key prefix (redis_rate prepends its own `rate:`) |
+
+The limiter **fails open**: on a Redis timeout or outage the request is forwarded
+and `mcpgate_ratelimit_redis_errors_total{kind}` is incremented, rather than the
+proxy going down with its rate limiter. If you rely on Redis, alert on that
+counter — a silent Redis outage otherwise degrades to per-replica limiting with
+no other signal.
+
+### Tracing (optional)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | *(empty)* | OTLP **HTTP** endpoint, e.g. `http://alloy:4318`. Empty disables tracing. This is the *generic* OTLP variable, so mcp-gate appends the `/v1/traces` signal path itself |
+| `OTEL_SERVICE_NAME` | `mcp-gate` | Service name in traces. Also the gate's identity in Prometheus (`service`) and Loki (`service_name`) — see "Running several gates" |
+| `OTEL_TRACE_SAMPLE_RATE` | `1.0` | Sampling rate, 0.0–1.0 |
+
+An `http://` endpoint disables TLS; anything else uses it. Export failures are
+not surfaced on `/healthz` or by any metric, so verify tracing by looking for
+spans in your backend rather than by the absence of errors.
 
 **Timeout notes**: MCP connections are long-lived (SSE/streamable-http). `UPSTREAM_TIMEOUT` controls how long mcp-gate waits for the upstream MCP server to send the first response byte — complex queries (e.g., PromQL range queries over weeks of data) may need the full 120s default. `IDLE_TIMEOUT` controls how long idle keep-alive connections stay open between MCP tool calls.
 

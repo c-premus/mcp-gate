@@ -95,7 +95,7 @@ var (
 		Help: "Total requests rejected by rate limiting.",
 	})
 
-	// RateLimitBackend is set to 1 for the active backend label. When REDIS_URL
+	// RateLimitBackend is set to 1 for the active backend label. When REDIS_ADDR
 	// is set the "redis" series is 1 and the "memory" series is 0; otherwise the
 	// inverse. Dashboard alerts can pivot on this gauge to distinguish per-replica
 	// fragmentation (memory) from coordinated enforcement (redis).
