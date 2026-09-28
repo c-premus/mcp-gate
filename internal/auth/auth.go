@@ -288,7 +288,13 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 			return
 		}
 
-		token, found := strings.CutPrefix(authHeader, "Bearer ")
+		// RFC 9110 §11.1 and RFC 6750 §2.1 define auth-scheme as a
+		// case-INSENSITIVE token, and §11.6.2 allows more than one space
+		// between the scheme and the credentials. A case-sensitive CutPrefix
+		// told a client sending `bearer <valid token>` that it had supplied no
+		// credentials at all (no_token, a 401 carrying no error parameter),
+		// which is both wrong and actively misleading to debug.
+		token, found := cutBearerPrefix(authHeader)
 		if !found || token == "" {
 			metrics.AuthValidationsTotal.WithLabelValues("no_token").Inc()
 			span.SetAttributes(attribute.String("auth.outcome", "no_token"))
@@ -349,7 +355,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 
 		// Scope validation — 403, not 401
 		for _, required := range m.cfg.RequiredScopes {
-			if slices.Contains(claims.Scope, required) {
+			if scopesSatisfy(claims.Scope, required) {
 				continue
 			}
 			slog.Warn("token rejected",
@@ -372,7 +378,12 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 				"client_ip", clientIP,
 				"jti", claims.ID,
 			)
-			metrics.AuthValidationsTotal.WithLabelValues("invalid_token").Inc()
+			// Label matches the span attribute and the log reason. It used to
+			// read "invalid_token", which made an IdP that stopped emitting
+			// `sub` indistinguishable from signature failures in Prometheus —
+			// the one place an operator would look. Constant string, so this
+			// adds exactly one series.
+			metrics.AuthValidationsTotal.WithLabelValues("missing_sub").Inc()
 			span.SetAttributes(attribute.String("auth.outcome", "missing_sub"))
 			m.writeInvalidTokenError(w)
 			return
@@ -397,9 +408,6 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 	})
 }
 
-// sanitizeQuotedString escapes characters for use in RFC 7235 quoted-string
-// values. In addition to escaping backslash and double-quote (the two
-// characters that carry meaning inside a quoted-string), it strips CR, LF,
 // classifyJWTError maps a jwt/v5 parse/validation error to a fixed-cardinality
 // category string safe to log at Warn. The jwt/v5 library's err.Error() can
 // echo token bytes in some failure modes (malformed base64, JSON unmarshal);
@@ -440,6 +448,64 @@ func classifyJWTError(err error) string {
 	}
 }
 
+// bearerScheme is the RFC 6750 auth-scheme. Matched case-insensitively per
+// RFC 9110 §11.1; the token itself stays case-sensitive.
+const bearerScheme = "Bearer"
+
+// cutBearerPrefix splits a case-insensitive "Bearer <token>" Authorization
+// header value, tolerating the additional SP that RFC 9110 §11.6.2 permits
+// between scheme and credentials. It returns ok=false if the scheme does not
+// match, so the caller can distinguish "no bearer credentials" from "bad
+// bearer credentials" — the two produce different challenges.
+func cutBearerPrefix(header string) (token string, ok bool) {
+	if len(header) < len(bearerScheme) ||
+		!strings.EqualFold(header[:len(bearerScheme)], bearerScheme) {
+		return "", false
+	}
+	rest := header[len(bearerScheme):]
+	// A scheme match must be followed by whitespace, or "Bearerfoo" would
+	// parse as the Bearer scheme carrying the token "foo".
+	if rest == "" || (rest[0] != ' ' && rest[0] != '\t') {
+		return "", false
+	}
+	return strings.TrimLeft(rest, " \t"), true
+}
+
+// scopeHierarchySeparator is the conventional OAuth scope hierarchy delimiter
+// (`repo:status`, `files:read`, `admin:org`). MCP does not mandate a delimiter;
+// `:` is what the ecosystem uses and what RFC 6749 §3.3's "space-delimited,
+// case-sensitive strings" leaves open to the AS.
+const scopeHierarchySeparator = ":"
+
+// scopesSatisfy reports whether the scopes granted in a token are sufficient
+// for one required scope.
+//
+// MCP 2026-07-28, Authorization §Step-Up Authorization Flow: "Servers MUST
+// account for scope hierarchies, where a broader scope implies narrower ones,
+// when deciding whether a token is sufficient for an operation." Exact matching
+// alone (the previous behaviour) does not satisfy that MUST.
+//
+// The implication is strictly one-directional: a granted `files` satisfies a
+// required `files:read`, because the broad scope subsumes the narrow one. The
+// reverse must NOT hold — a granted `files:read` does not satisfy a required
+// `files`, which would be a privilege escalation rather than a hierarchy.
+//
+// Matching is on whole segments. A granted `file` does not satisfy a required
+// `files:read`, because the separator must follow the granted prefix exactly.
+//
+// For an AS that issues flat scopes with no separator (Authentik issues
+// `openid`, `profile`), every comparison falls through to the equality case and
+// this is behaviourally identical to the exact match it replaces.
+func scopesSatisfy(granted []string, required string) bool {
+	return slices.ContainsFunc(granted, func(g string) bool {
+		return g == required ||
+			strings.HasPrefix(required, g+scopeHierarchySeparator)
+	})
+}
+
+// sanitizeQuotedString escapes characters for use in RFC 7235 quoted-string
+// values. In addition to escaping backslash and double-quote (the two
+// characters that carry meaning inside a quoted-string), it strips CR, LF,
 // NUL, and other C0 control bytes (< 0x20 except tab) as defense-in-depth
 // against header-splitting if a caller ever reflects untrusted input here.
 // Current call sites pass operator-controlled config only; this keeps the

@@ -1406,3 +1406,88 @@ func TestChallengeShape(t *testing.T) {
 		})
 	}
 }
+
+// TestScopeHierarchyEndToEnd exercises the MCP 2026-07-28 scope-hierarchy MUST
+// through the real middleware, not just the helper — the unit test pins the
+// predicate, this pins that the predicate is actually wired into the 403 path.
+func TestScopeHierarchyEndToEnd(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		granted    string
+		required   []string
+		wantStatus int
+	}{
+		{
+			name:       "broader granted scope satisfies narrower requirement",
+			granted:    "openid files",
+			required:   []string{"files:read"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "narrower granted scope does NOT satisfy broader requirement",
+			granted:    "openid files:read",
+			required:   []string{"files"},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "sibling scope does not satisfy",
+			granted:    "openid files:read",
+			required:   []string{"files:write"},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "character prefix without a separator does not satisfy",
+			granted:    "openid file",
+			required:   []string{"files:read"},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "flat scopes behave exactly as before",
+			granted:    "openid profile",
+			required:   []string{"openid"},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ts := newTestSetup(t)
+			defer ts.Close()
+
+			mw := newMiddleware(t, ts, tt.required)
+			claims := validClaims()
+			claims.Scope = strings.Fields(tt.granted)
+			token := signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
+
+			w := doRequest(t, mw, "Bearer "+token)
+			if w.Code != tt.wantStatus {
+				t.Fatalf("granted=%q required=%v: status = %d, want %d (%s)",
+					tt.granted, tt.required, w.Code, tt.wantStatus, w.Body.String())
+			}
+		})
+	}
+}
+
+// TestBearerSchemeCaseInsensitiveEndToEnd pins that a fully valid token behind
+// a lowercase scheme is accepted. Before this, such a client was told it had
+// sent no credentials at all.
+func TestBearerSchemeCaseInsensitiveEndToEnd(t *testing.T) {
+	t.Parallel()
+	ts := newTestSetup(t)
+	defer ts.Close()
+
+	mw := newMiddleware(t, ts, []string{"openid"})
+	token := signToken(t, ts.privKey, validClaims(), map[string]any{"typ": "at+jwt"})
+
+	for _, scheme := range []string{"Bearer", "bearer", "BEARER", "BeArEr"} {
+		t.Run(scheme, func(t *testing.T) {
+			w := doRequest(t, mw, scheme+" "+token)
+			if w.Code != http.StatusOK {
+				t.Errorf("scheme %q: status = %d, want 200 (%s)", scheme, w.Code, w.Body.String())
+			}
+		})
+	}
+}
