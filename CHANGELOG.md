@@ -8,6 +8,14 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.20.1] - 2026-09-29
+
+### Maintenance
+
+- chore(skills): move the Forgejo skills to the Forgejo MCP server
+- chore(devcontainer): drop fj, gh and the Redis sidecar; track the lint pin
+- chore(devcontainer): make bash the default shell, drop zsh
+
 ## [0.20.0] - 2026-09-28
 
 ### Features
@@ -24,6 +32,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 ### Maintenance
 
+- chore(changelog): update for v0.20.0
 - chore(deps): update mcr.microsoft.com/devcontainers/go:dev-1.26 docker digest to a8393b1 (#257)
 
 ## [0.19.36] - 2026-09-25
@@ -1135,6 +1144,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.20.1]: https://github.com/c-premus/mcp-gate/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/c-premus/mcp-gate/compare/v0.19.36...v0.20.0
 [0.19.36]: https://github.com/c-premus/mcp-gate/compare/v0.19.35...v0.19.36
 [0.19.35]: https://github.com/c-premus/mcp-gate/compare/v0.19.34...v0.19.35
