@@ -15,7 +15,7 @@ This guide covers two things: creating an OAuth client in your OIDC provider, an
 - An MCP server running and reachable from mcp-gate over HTTP
 - An OIDC/OAuth 2.1 provider (Keycloak, Authentik, Okta, Auth0, or similar)
 - A public HTTPS domain for mcp-gate (e.g., `mcp.example.com`)
-- The `mcp-gate` binary or Docker image (`cpremus/mcp-gate:latest`)
+- The Docker image (`cpremus/mcp-gate` or `ghcr.io/c-premus/mcp-gate`) or a binary built from source
 
 ## Step 1: Create an OAuth Client
 
@@ -44,6 +44,8 @@ The settings above go by different names depending on your provider:
 ### Scopes
 
 mcp-gate requires at least `openid` by default. If you set `REQUIRED_SCOPES` on mcp-gate to additional values (e.g., `openid,profile,email`), the OAuth client must be authorized to issue those scopes.
+
+Scope matching is hierarchy-aware, as MCP 2026-07-28 requires: a granted scope that is a `:`-delimited prefix of a required one satisfies it, so a token carrying `files` satisfies a required `files:read`. It never works the other way round (`files:read` does not satisfy `files`), and the prefix must end at the `:` (`file` does not satisfy `files:read`). For providers that issue flat scopes such as `openid` and `profile`, this reduces to exact matching. The `scope` claim is accepted either as a space-delimited string (RFC 6749 §3.3) or as a JSON array.
 
 ### Token signing
 
@@ -84,26 +86,26 @@ In many providers, the issuer URL and the authorization server URL are the same 
 | `AUTHORIZATION_SERVER` | OAuth provider URL | `https://auth.example.com/realms/main` |
 | `JWKS_URI` | Provider's JWKS endpoint | `https://auth.example.com/realms/main/protocol/openid-connect/certs` |
 | `EXPECTED_ISSUER` | JWT `iss` claim value | `https://auth.example.com/realms/main` |
-| `EXPECTED_AUDIENCE` | JWT `aud` claim value (= client ID) | `mcp-gate-client` |
+| `EXPECTED_AUDIENCE` | JWT `aud` claim value (usually the client ID — see below) | `mcp-gate-client` |
 
 **Optional:**
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `REQUIRED_SCOPES` | `openid` | Comma-separated scopes required in the JWT |
-| `SCOPES_SUPPORTED` | `openid,profile` | Scopes advertised in RFC 9728 metadata |
+| `REQUIRED_SCOPES` | `openid` | Comma-separated scopes required in the JWT (hierarchy-aware, see Scopes above). Named in the `scope=` of the 403 challenge |
+| `SCOPES_SUPPORTED` | `openid,profile` | Scopes advertised in RFC 9728 metadata and in the `scope=` of both 401 challenges |
 | `AUTH_REALM` | *(RESOURCE_URI host)* | Protection space name in the `WWW-Authenticate` challenge. Defaults to the `RESOURCE_URI` hostname, so each deployment names its own resource |
 | `RESOURCE_DOCUMENTATION` | `https://github.com/c-premus/mcp-gate` | `resource_documentation` URL in RFC 9728 metadata. Point this at your protected resource's own docs |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `METRICS_ADDR` | `:9090` | Prometheus metrics bind address |
-| `TRUSTED_PROXIES` | *(empty)* | Comma-separated CIDRs for trusted reverse proxies |
+| `TRUSTED_PROXIES` | *(empty)* | Comma-separated CIDRs for trusted reverse proxies. A bare IP is treated as `/32` or `/128`; catch-all `0.0.0.0/0` and `::/0` are refused at startup |
 | `ALLOWED_ORIGINS` | *(empty)* | Comma-separated browser origins (e.g. `https://claude.ai`). Empty disables Origin validation. See "DNS rebinding" below |
 | `RATE_LIMIT_RPS` | `10` | Per-IP requests per second |
 | `RATE_LIMIT_BURST` | `20` | Per-IP burst allowance |
-| `MAX_CONCURRENT_REQUESTS` | `100` | Max concurrent requests per IP |
-| `MAX_TOTAL_CONNECTIONS` | `1000` | Max total connections |
-| `MAX_REQUEST_BODY` | `10485760` | Max request body in bytes (10 MB) |
-| `UPSTREAM_TIMEOUT` | `120s` | Time to wait for first upstream response byte |
+| `MAX_CONCURRENT_REQUESTS` | `100` | Max in-flight requests per IP (over the limit: `503`) |
+| `MAX_TOTAL_CONNECTIONS` | `1000` | Max in-flight requests across all IPs (over the limit: `503`) |
+| `MAX_REQUEST_BODY` | `10485760` | Max request body in bytes (10 MB). Larger bodies get `413 payload_too_large` |
+| `UPSTREAM_TIMEOUT` | `120s` | Time to wait for the upstream's response headers |
 | `READ_TIMEOUT` | `30s` | Inbound request read timeout |
 | `IDLE_TIMEOUT` | `120s` | Keep-alive idle timeout |
 | `MAX_HEADER_BYTES` | `131072` | Max request header size in bytes (128 KB) |
@@ -111,6 +113,10 @@ In many providers, the issuer URL and the authorization server URL are the same 
 | `JWKS_REFRESH_INTERVAL` | `1h` | Background JWKS refresh interval |
 | `SHUTDOWN_TIMEOUT` | `30s` | Graceful shutdown drain timeout, applied independently per stage |
 | `RESOURCE_NAME` | `MCP Server` | Human-readable `resource_name` in RFC 9728 metadata |
+
+**About `EXPECTED_AUDIENCE`**: MCP 2026-07-28 (via RFC 8707) wants tokens bound to the resource's canonical URI, i.e. `aud` equal to `RESOURCE_URI`. Many providers ignore the `resource` parameter and put the client ID in `aud` instead, which is why this guide uses the client ID. When `EXPECTED_AUDIENCE` differs from `RESOURCE_URI`, mcp-gate logs `audience not bound to canonical resource URI` at startup as a warning. If your provider can issue `aud=<RESOURCE_URI>`, set `EXPECTED_AUDIENCE` to that value.
+
+**Path-mounted resources**: if `RESOURCE_URI` has a path (e.g. `https://example.com/mcp`), the metadata document is also served at the RFC 9728 §3.1 path-inserted URL `/.well-known/oauth-protected-resource/mcp`, and the challenges point there. Other paths under the well-known prefix return `404`.
 
 ### Distributed rate limiting (optional)
 
@@ -143,15 +149,15 @@ no other signal.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | *(empty)* | OTLP **HTTP** endpoint, e.g. `http://alloy:4318`. Empty disables tracing. This is the *generic* OTLP variable, so mcp-gate appends the `/v1/traces` signal path itself |
-| `OTEL_SERVICE_NAME` | `mcp-gate` | Service name in traces. Also the gate's identity in Prometheus (`service`) and Loki (`service_name`) — see "Running several gates" |
-| `OTEL_TRACE_SAMPLE_RATE` | `1.0` | Sampling rate, 0.0–1.0 |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | *(empty)* | OTLP **HTTP** endpoint, e.g. `http://alloy:4318`. Empty disables tracing. This is the *generic* OTLP variable, so when the URL has no path mcp-gate appends `/v1/traces`; a URL with an explicit path is used as-is |
+| `OTEL_SERVICE_NAME` | `mcp-gate` | Service name in traces. Use the same value as the gate's Prometheus `service` label and Loki `service_name` — see "Running several gates" |
+| `OTEL_TRACE_SAMPLE_RATE` | `1.0` | Sampling rate, 0.0–1.0. Parent-based: applies to root spans; an incoming sampled `traceparent` is honoured |
 
 An `http://` endpoint disables TLS; anything else uses it. Export failures are
 not surfaced on `/healthz` or by any metric, so verify tracing by looking for
 spans in your backend rather than by the absence of errors.
 
-**Timeout notes**: MCP connections are long-lived (SSE/streamable-http). `UPSTREAM_TIMEOUT` controls how long mcp-gate waits for the upstream MCP server to send the first response byte — complex queries (e.g., PromQL range queries over weeks of data) may need the full 120s default. `IDLE_TIMEOUT` controls how long idle keep-alive connections stay open between MCP tool calls.
+**Timeout notes**: MCP connections are long-lived (SSE/streamable-http). `UPSTREAM_TIMEOUT` controls how long mcp-gate waits for the upstream MCP server to send its response headers — complex queries (e.g., PromQL range queries over weeks of data) may need the full 120s default. `IDLE_TIMEOUT` controls how long idle keep-alive connections stay open between MCP tool calls.
 
 ### Docker
 
@@ -166,10 +172,22 @@ docker run -d \
   -e JWKS_URI=https://auth.example.com/realms/main/protocol/openid-connect/certs \
   -e EXPECTED_ISSUER=https://auth.example.com/realms/main \
   -e EXPECTED_AUDIENCE=mcp-gate-client \
-  cpremus/mcp-gate:latest
+  cpremus/mcp-gate:0.20
 ```
 
+Images are published for `linux/amd64` to Docker Hub (`cpremus/mcp-gate`) and GHCR (`ghcr.io/c-premus/mcp-gate`). Tags are `X.Y.Z`, `X.Y` and `latest`, with no `v` prefix. Pin a version: a floating `latest` makes "which build is running?" hard to answer, and it is the question the bundled alert rules ask.
+
+The image's `HEALTHCHECK` runs `/mcp-gate healthcheck`, a built-in subcommand that probes `/healthz` on `LISTEN_ADDR` (the image has no shell or curl).
+
 ### Binary
+
+No prebuilt binaries are published. Build one from source and stamp the version, or the build reports `version="dev"` in `mcpgate_info` (and the bundled "Running an Unidentified Build" alert fires):
+
+```bash
+go build -ldflags "-X main.version=$(git describe --tags --always)" -o mcp-gate ./cmd/mcp-gate
+```
+
+Then run it:
 
 ```bash
 export LISTEN_ADDR=0.0.0.0:8080
@@ -205,11 +223,13 @@ Expected output:
   "resource": "https://mcp.example.com",
   "authorization_servers": ["https://auth.example.com/realms/main"],
   "scopes_supported": ["openid", "profile"],
-  "bearer_methods_supported": ["header"]
+  "bearer_methods_supported": ["header"],
+  "resource_name": "MCP Server",
+  "resource_documentation": "https://github.com/c-premus/mcp-gate"
 }
 ```
 
-If `/healthz` returns 503, mcp-gate could not fetch keys from the JWKS endpoint. Check that `JWKS_URI` is reachable and uses HTTPS.
+mcp-gate fetches the JWKS once at startup and exits if that fails (see Troubleshooting), so a running gate had keys when it started. `/healthz` returns `503` (body `unavailable`) if the key store later becomes empty. `/healthz` is also subject to the rate and concurrency limits, so a busy gate can return `429` or `503` to probes. The metrics port (`:9090`) also serves a `/healthz`, but that one always returns 200 and only shows the process is alive.
 
 ## Step 4: Connect Claude.ai
 
@@ -241,11 +261,17 @@ When you start a conversation that uses the MCP connector, Claude.ai will redire
 6. Claude.ai redirects user to OAuth provider login
 7. User authenticates, provider issues a JWT via Authorization Code + PKCE
 8. Claude.ai sends MCP requests with Authorization: Bearer <JWT>
-9. mcp-gate validates the JWT (signature, expiry, issuer, audience, scopes)
+9. mcp-gate validates the JWT (signature, expiry, issuer, audience, subject, scopes)
 10. mcp-gate strips the Authorization header and proxies to the MCP server
 ```
 
-The MCP server never sees the user's JWT. mcp-gate removes the `Authorization` header before forwarding requests.
+The MCP server never sees the user's JWT. Before forwarding, mcp-gate removes:
+
+- the `Authorization` and `Cookie` headers;
+- an `access_token` query parameter, which OAuth 2.1 and MCP disallow. Its removal is logged as a warning and counted in `mcpgate_deprecated_access_token_query_total`, and the token is never validated from the query string;
+- hop-by-hop headers. Client-supplied `Forwarded` and `X-Forwarded-*` headers are discarded, and `X-Forwarded-For`, `-Host` and `-Proto` are set from the actual connection.
+
+On the response path, mcp-gate drops the upstream's `Server` and `X-Powered-By` headers. It also replaces any upstream `X-Content-Type-Options`, `X-Frame-Options`, `Content-Security-Policy` and `Referrer-Policy` with its own values, because a duplicated `X-Frame-Options` is ignored by browsers.
 
 ## Monitoring
 
@@ -261,6 +287,8 @@ scrape_configs:
         labels:
           service: "mcp-gate"
 ```
+
+Keep the job name `mcp-gate`: the bundled dashboard and every alert rule select on `job="mcp-gate"`.
 
 ### Running several gates
 
@@ -278,12 +306,12 @@ scrape_configs:
           service: "mcp-gate-forgejo"  # OTEL_SERVICE_NAME of that gate
 ```
 
-Using `OTEL_SERVICE_NAME` as the value is what makes one identity work across all three signals: it is the `service` label in Prometheus, the `service_name` stream label in Loki, and `resource.service.name` on the trace. The bundled dashboard's **Gate** variable is populated from `mcpgate_info`, and every panel — metrics, logs and traces alike — filters on it, so a single selector drives all three.
+Using `OTEL_SERVICE_NAME` as the value is what makes one identity work across all three signals. mcp-gate itself only emits it as `resource.service.name` on traces. The Prometheus `service` label comes from your scrape config (above), and the Loki `service_name` stream label comes from your log shipper (Alloy, Promtail, etc.), because mcp-gate writes plain JSON to stdout. Set all three to the same value. The bundled dashboard's **Gate** variable is populated from `mcpgate_info`, and every panel — metrics, logs and traces alike — filters on it, so a single selector drives all three.
 
 This label is a contract, not a convention:
 
 - **The dashboard requires it.** Selecting "All" expands to the list of `service` values actually present. If no gate sets the label there is nothing to expand to, and the log panels in particular will not render — Loki rejects a stream selector that could match the empty string, and has no `job` label to fall back on.
-- **The alert rules depend on it too**, but degrade quietly: they aggregate `by (service)` and template the label into each summary. Without it you get one alert instance whose summary reads `mcp-gate`, which is exactly the single-gate behaviour.
+- **The alert rules use it too**, but degrade quietly. The JWKS and target-down rules keep one alert instance per series, so each instance carries its gate's labels. The upstream-error-ratio and auth-failure rules aggregate `by (service)` and put the label in the summary. Without the label, those two produce a single instance whose summary reads `mcp-gate`, which is the single-gate behaviour. The two release rules (unidentified build, gates on different versions) compare gates on purpose and do not split by `service`.
 
 Note that the alert rules deliberately carry no `service` label of their own. Grafana applies rule labels *on top of* query labels, so a hardcoded one would overwrite the scraped value and attribute every gate's alerts to the same instance.
 
@@ -296,7 +324,7 @@ Provisioning artifacts ship in the repo:
 | `docs/grafana/dashboard.json` | Grafana's dashboard provisioning directory |
 | `docs/grafana/alerts.yaml` | Grafana's `alerting/` provisioning directory |
 
-The dashboard is generated — edit the TypeScript under `grafana/src/` and run `npm run generate`, rather than editing the JSON. CI fails if the committed JSON does not match its source.
+The dashboard is generated. Edit the TypeScript under `grafana/src/` and run `npm run generate` instead of editing the JSON.
 
 Build panels with the factories in `grafana/src/panels/defaults.ts`, not with the SDK's `PanelBuilder` classes directly. The SDK seeds several required option fields as *explicitly empty* rather than absent — `reduceOptions.calcs: []`, `legend.showLegend: false` — and Grafana honours an empty field instead of falling back to its default, so the panel loads without error and renders nothing. `npm run generate` validates the dashboard before writing it and refuses to emit one that has an empty reducer, a hidden legend on a per-gate panel, a missing unit, or a `gridPos` that overflows or overlaps; `npm run validate` runs the same rules against the committed JSON.
 
@@ -304,8 +332,8 @@ Build panels with the factories in `grafana/src/panels/defaults.ts`, not with th
 
 ### mcp-gate fails to start
 
-**"JWKS initial fetch" error**: mcp-gate could not reach the JWKS endpoint. Verify:
-- `JWKS_URI` is correct and uses `https://`
+**"JWKS initial fetch" error**: mcp-gate could not reach the JWKS endpoint. (A non-`https://` `JWKS_URI` is rejected earlier, during config validation.) Verify:
+- `JWKS_URI` is correct
 - The JWKS endpoint is reachable from the mcp-gate container/host
 - DNS resolution works (common issue in Docker networks)
 
@@ -313,7 +341,9 @@ Build panels with the factories in `grafana/src/panels/defaults.ts`, not with th
 
 ### 401 Unauthorized: "The access token is invalid or expired"
 
-Set `LOG_LEVEL=debug` and check the logs for the specific rejection reason.
+Each rejection is logged at `warn` with a `category` field (`expired`, `wrong_audience`, `wrong_issuer`, `malformed`, …). `LOG_LEVEL=debug` adds the library's raw error message.
+
+**Missing claims or wrong token type**: tokens without `sub` or `exp` are rejected, as are tokens whose `typ` header is neither `at+jwt` nor `JWT`. Some providers issue opaque (non-JWT) access tokens unless configured otherwise.
 
 **Wrong audience**: The `aud` claim in the JWT does not match `EXPECTED_AUDIENCE`. The audience should be the OAuth client ID. Some providers require explicit audience configuration on the client.
 
@@ -341,6 +371,14 @@ The token does not contain a required scope. Decode the JWT and check the `scope
 ### Claude.ai shows "redirect_uri mismatch"
 
 The OAuth client's allowed redirect URIs must include `https://claude.ai/api/mcp/auth_callback` exactly. Check for typos, trailing slashes, or scheme mismatches.
+
+### 413, 429 and 503
+
+- **413 `payload_too_large`**: the request body exceeded `MAX_REQUEST_BODY`.
+- **429 `rate_limit_exceeded`** (with `Retry-After`): the client exceeded `RATE_LIMIT_RPS`/`RATE_LIMIT_BURST`.
+- **503 `too_many_connections`** (with `Retry-After`): the client already has `MAX_CONCURRENT_REQUESTS` requests in flight, or `MAX_TOTAL_CONNECTIONS` are open across all clients. Long-lived SSE streams count until they close.
+
+If every client seems to share one limit, `TRUSTED_PROXIES` is probably unset. Without it, mcp-gate sees the reverse proxy's IP as the client for every request.
 
 ### 502 Bad Gateway
 

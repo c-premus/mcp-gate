@@ -3,7 +3,7 @@
 
 services:
   mcp-gate:
-    image: cpremus/mcp-gate:latest
+    image: cpremus/mcp-gate:0.20  # pin a release; tags are X.Y.Z / X.Y / latest
     ports:
       - "8080:8080"
       - "9090:9090"
@@ -17,7 +17,8 @@ services:
       EXPECTED_AUDIENCE: "your-oauth-client-id"
       LOG_LEVEL: "info"
       # Soft memory cap so the Go GC keeps heap below this before host OOM
-      # kicks in. See docs/setup.md "Deploy Behavior" for tuning guidance.
+      # kicks in. Size it to the container memory limit
+      # (roughly 80-90% of it); it is a Go runtime setting, not an mcp-gate one.
       GOMEMLIMIT: "256MiB"
     healthcheck:
       test: ["/mcp-gate", "healthcheck"]

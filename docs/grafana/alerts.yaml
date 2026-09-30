@@ -13,9 +13,9 @@
 # their own. Grafana applies rule-level labels on top of the query's labels, so
 # a hardcoded `service` would overwrite the one the scrape config attaches and
 # every gate's alerts would be attributed to the same instance. Instead, each
-# rule aggregates `by (service)` and templates `$labels.service` into its
-# summary, so one job scraping several gates produces one correctly-named alert
-# instance per gate. See docs/setup.md ("Scraping several gates") for the
+# per-gate rule either keeps one instance per series or aggregates
+# `by (service)`, and templates `$labels.service` into its summary, so one job
+# scraping several gates produces one correctly-named alert instance per gate. See docs/setup.md ("Running several gates") for the
 # scrape-config contract that supplies the label. If your scrape config does
 # not set `service`, the label is simply absent and the summaries fall back to
 # a generic "mcp-gate" — identical to single-gate behaviour.
