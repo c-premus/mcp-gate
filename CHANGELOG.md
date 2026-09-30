@@ -12,6 +12,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 ### Maintenance
 
+- chore(changelog): update for v0.20.2
 - chore(deps): update dependency @types/node to v24.19.0 (#258)
 
 ## [0.20.1] - 2026-09-29
@@ -1151,6 +1152,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.20.3]: https://github.com/c-premus/mcp-gate/compare/v0.20.2...v0.20.3
 [0.20.2]: https://github.com/c-premus/mcp-gate/compare/v0.20.1...v0.20.2
 [0.20.1]: https://github.com/c-premus/mcp-gate/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/c-premus/mcp-gate/compare/v0.19.36...v0.20.0
