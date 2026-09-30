@@ -562,8 +562,8 @@ groups:
             Fix: re-point `:latest` at the intended release tag without
             rebuilding, so the digest and its SBOM/provenance referrers survive:
               docker buildx imagetools create \
-                -t git.example.com/chris/mcp-gate:latest \
-                git.example.com/chris/mcp-gate:vX.Y.Z
+                -t <registry>/<owner>/mcp-gate:latest \
+                <registry>/<owner>/mcp-gate:vX.Y.Z
             then dispatch deploy.yaml once per gate.
 
       - uid: mcp-gate-version-skew
