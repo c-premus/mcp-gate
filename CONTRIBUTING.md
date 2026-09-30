@@ -34,8 +34,12 @@ issue first.
 
 ## Prerequisites
 
-- Go 1.26+
-- [golangci-lint](https://golangci-lint.run/) v2.11.4+
+- Go 1.26+. `go.mod` declares a `go 1.26` language floor and a newer
+  `toolchain` line; with the default `GOTOOLCHAIN=auto`, Go downloads that
+  toolchain on first use. Code must still compile at the 1.26 floor.
+- [golangci-lint](https://golangci-lint.run/) at the version pinned in
+  `.github/workflows/ci.yaml` (v2.14.0 at the time of writing)
+- Node.js 24, only if you change the Grafana dashboard
 - Git with conventional commit knowledge
 
 ## Getting Started
@@ -58,9 +62,23 @@ go test -race ./...
 
 # Lint (26 linters configured in .golangci.yml)
 golangci-lint run ./...
+
+# go.mod / go.sum must be tidy (CI fails on any diff)
+go mod tidy -diff
 ```
 
-All three must pass before a PR will be reviewed.
+All four must pass before a PR will be reviewed.
+
+The dashboard in `docs/grafana/dashboard.json` is generated. If you
+change it, edit the TypeScript under `grafana/src/` and regenerate
+instead of editing the JSON:
+
+```bash
+cd grafana
+npm ci
+npm run typecheck
+npm run generate   # validates, then writes docs/grafana/dashboard.json
+```
 
 ## Commit message format
 
@@ -128,13 +146,19 @@ This matches Semver §4 ("v0.x.y is unstable; anything may change").
 ```
 cmd/mcp-gate/main.go        # Entrypoint, config loading, server startup
 internal/
-  auth/auth.go              # JWT validation middleware
+  auth/auth.go              # JWT validation middleware, scope matching
   metadata/metadata.go      # RFC 9728 Protected Resource Metadata
   metrics/                  # Prometheus metrics & HTTP middleware
+  origin/origin.go          # Opt-in Origin validation (ALLOWED_ORIGINS)
   otel/                     # OpenTelemetry tracing setup
   proxy/proxy.go            # Reverse proxy, header stripping
+  ratelimit/                # Per-IP + concurrent limits, optional Redis backend
   realip/realip.go          # Client IP extraction (trusted proxy aware)
-build/Dockerfile             # Multi-stage distroless build
+build/Dockerfile            # Multi-stage distroless build
+docs/setup.md               # Operator setup guide
+docs/grafana/               # Generated dashboard + alert rules
+grafana/src/                # Dashboard source (TypeScript)
+scripts/                    # CHANGELOG generator
 ```
 
 ## Running Locally
@@ -151,12 +175,13 @@ export EXPECTED_ISSUER="https://auth.example.com/application/o/my-provider/"
 export EXPECTED_AUDIENCE="my-client-id"
 ```
 
-See the README for the full configuration reference.
+See [docs/setup.md](docs/setup.md#environment-variables) for the full
+configuration reference.
 
 ## Reporting security issues
 
-Don't open a public issue. Email the maintainer directly (see commit
-metadata) and include reproduction steps.
+Don't open a public issue. See [SECURITY.md](SECURITY.md) — the
+preferred channel is a GitHub private security advisory.
 
 ## License
 

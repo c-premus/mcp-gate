@@ -16,7 +16,7 @@ Only the latest release receives security updates. If you are running an older v
 To report a vulnerability:
 
 1. **Preferred:** Use [GitHub's private security advisory](https://github.com/c-premus/mcp-gate/security/advisories/new) feature.
-2. **Alternative:** Email Chris Premus directly at the address listed on his GitHub profile.
+2. **Alternative:** Email the maintainer at the address listed on the [c-premus](https://github.com/c-premus) GitHub profile.
 
 Include the following in your report:
 
