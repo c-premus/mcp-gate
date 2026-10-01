@@ -111,7 +111,7 @@ jobs:
       # Docker Hub: --upload=false records the signature in Rekor only, for
       # the same orphan-manifest reason as the Docker Hub attest step above.
       # Both steps retry: the public Fulcio/Rekor instances return transient
-      # errors (DocuMCP-go's v0.32.3 release failed on a Fulcio 400 wrapping a
+      # errors (a sibling project's release failed on a Fulcio 400 wrapping a
       # cancelled GCP KMS call), and cosign does not retry them itself. A
       # retry after a partial success at worst records a second, equally
       # valid signature.
