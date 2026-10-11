@@ -146,17 +146,22 @@ jobs:
           short-description: "OAuth 2.1 reverse proxy for MCP servers"
 
       - name: Clean up old GHCR versions
-        # snok/container-retention-policy is a Rust/Docker action — no Node
-        # runtime, so it sidesteps the GitHub Actions Node 20 deprecation
-        # treadmill entirely. Upstream actions/delete-package-versions has
-        # had no release since v5.0.0 (Jan 2024, Node 20).
+        # Keep the 10 newest releases. Each release leaves TWO tagged versions:
+        # the image index (semver + major.minor + latest) and its cosign
+        # signature (tag sha256-<digest>), hence keep-n-most-recent: 20.
+        # tag-selection: both also prunes untagged versions older than the
+        # cut-off, but snok never deletes the platform/attestation children
+        # of a kept multi-arch index. Do not swap this for
+        # actions/delete-package-versions: its min-versions-to-keep counts
+        # those children and deleted them out from under kept tags.
         uses: snok/container-retention-policy@d3bdcf5ce9b05f685154e4a16c39233b245e3d53  # v3.1.0
         continue-on-error: true
         with:
           account: user
           token: ${{ secrets.GITHUB_TOKEN }}
           image-names: mcp-gate
-          tag-selection: untagged
+          tag-selection: both
+          keep-n-most-recent: 20
           cut-off: 1d
 
       # Docker Hub tag retention. We can't prune untagged manifests from here:
