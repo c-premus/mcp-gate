@@ -1225,7 +1225,9 @@ func TestRun_ShutdownStageOrder(t *testing.T) {
 
 	// Drain the client goroutine.
 	select {
-	case <-clientErrCh:
+	case err := <-clientErrCh:
+		// The request races shutdown, so either outcome is valid here.
+		t.Logf("client goroutine returned: %v", err)
 	case <-time.After(2 * time.Second):
 		t.Log("client goroutine did not return; not fatal for ordering check")
 	}

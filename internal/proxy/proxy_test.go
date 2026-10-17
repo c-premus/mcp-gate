@@ -814,8 +814,10 @@ func TestSSEIdleTimeoutClosesStream(t *testing.T) {
 	}()
 
 	select {
-	case <-done:
-		// Stream closed as expected.
+	case err := <-done:
+		// Stream closed as expected. The idle timeout aborts the body
+		// mid-stream, so a non-nil read error is normal and not asserted.
+		t.Logf("SSE body read ended: %v", err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("proxy did not close idle SSE stream within 5s — SSE_IDLE_TIMEOUT not enforced")
 	}
