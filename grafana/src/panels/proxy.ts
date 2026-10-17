@@ -131,6 +131,64 @@ function proxyStatusTimeseries(): TimeseriesPanel {
     );
 }
 
+function sseDisconnectsTimeseries(): TimeseriesPanel {
+  return timeseriesPanel()
+    .title("SSE Disconnects")
+    .description(
+      "SSE streams that ended before upstream finished them, by reason, per gate. idle_timeout: no bytes for SSE_IDLE_TIMEOUT " +
+        "(default 5m) and the gate closed the stream; client_cancel: the client went away. A series appears only after its first event."
+    )
+    .datasource(PROMETHEUS)
+    .unit("cps")
+    .span(12)
+    .height(8)
+    .withTarget(
+      new PrometheusQuery()
+        .expr(
+          `sum by (reason, service) (rate(mcpgate_sse_disconnects_total{${SELECTOR}}[$__rate_interval]))`
+        )
+        .legendFormat("{{service}} {{reason}}")
+        .refId("A")
+    );
+}
+
+function responseSizeTimeseries(): TimeseriesPanel {
+  return timeseriesPanel()
+    .title("Upstream Response Size")
+    .description(
+      "P50, P95 and P99 upstream response body size, per gate. Observed when the body closes, so a long SSE stream is counted " +
+        "once, at its full size, when it ends. Buckets top out at 64 MiB."
+    )
+    .datasource(PROMETHEUS)
+    .unit("bytes")
+    .span(12)
+    .height(8)
+    .withTarget(
+      new PrometheusQuery()
+        .expr(
+          `histogram_quantile(0.50, sum(rate(mcpgate_proxy_response_bytes_bucket{${SELECTOR}}[$__rate_interval])) by (le, service))`
+        )
+        .legendFormat("{{service}} p50")
+        .refId("A")
+    )
+    .withTarget(
+      new PrometheusQuery()
+        .expr(
+          `histogram_quantile(0.95, sum(rate(mcpgate_proxy_response_bytes_bucket{${SELECTOR}}[$__rate_interval])) by (le, service))`
+        )
+        .legendFormat("{{service}} p95")
+        .refId("B")
+    )
+    .withTarget(
+      new PrometheusQuery()
+        .expr(
+          `histogram_quantile(0.99, sum(rate(mcpgate_proxy_response_bytes_bucket{${SELECTOR}}[$__rate_interval])) by (le, service))`
+        )
+        .legendFormat("{{service}} p99")
+        .refId("C")
+    );
+}
+
 /** Returns panels for the Upstream Proxy section (added directly to dashboard so the row stays expanded — the Grafana Foundation SDK forces collapsed=true whenever a row has nested panels). */
 export function proxyPanels(): cog.Builder<dashboard.Panel>[] {
   return [
@@ -138,5 +196,7 @@ export function proxyPanels(): cog.Builder<dashboard.Panel>[] {
     proxyErrorRateStat(),
     proxyLatencyTimeseries(),
     proxyStatusTimeseries(),
+    sseDisconnectsTimeseries(),
+    responseSizeTimeseries(),
   ];
 }

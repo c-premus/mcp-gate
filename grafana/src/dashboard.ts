@@ -9,10 +9,12 @@ import {
 } from "@grafana/grafana-foundation-sdk/dashboard";
 import { PROMETHEUS, SERVICE_VAR, SERVICE_VAR_METRIC } from "./panels/constants";
 import { overviewPanels } from "./panels/overview";
+import { admissionPanels } from "./panels/admission";
 import { authPanels } from "./panels/auth";
 import { proxyPanels } from "./panels/proxy";
 import { jwksPanels } from "./panels/jwks";
 import { mcpRow } from "./panels/mcp";
+import { redisRow } from "./panels/redis";
 import { runtimeRow } from "./panels/runtime";
 import { tracesRow } from "./panels/traces";
 import { logsPanels } from "./panels/logs";
@@ -85,6 +87,9 @@ export function buildDashboard(): DashboardBuilder {
   // collapsed=true because Grafana strips nested panels from expanded rows.
   const expandedSections: [string, () => ReturnType<typeof overviewPanels>][] = [
     ["Service Overview", overviewPanels],
+    // Before Authentication because that is the request's path: rate and
+    // concurrency limits and Origin validation all run ahead of the JWT check.
+    ["Admission Control", admissionPanels],
     ["Authentication", authPanels],
     ["Upstream Proxy", proxyPanels],
     ["JWKS Health", jwksPanels],
@@ -99,6 +104,7 @@ export function buildDashboard(): DashboardBuilder {
   // Drill-down rows (collapsed by default — operators open these deliberately)
   builder = builder
     .withRow(mcpRow())
+    .withRow(redisRow())
     .withRow(runtimeRow())
     .withRow(tracesRow());
 

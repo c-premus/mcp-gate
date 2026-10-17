@@ -392,10 +392,504 @@
       "collapsed": false,
       "id": 0,
       "panels": [],
-      "title": "Authentication",
+      "title": "Admission Control",
       "gridPos": {
         "x": 0,
         "y": 14,
+        "h": 1,
+        "w": 24
+      }
+    },
+    {
+      "type": "stat",
+      "transparent": false,
+      "repeatDirection": "h",
+      "options": {
+        "graphMode": "area",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "percentChangeColorMode": "standard",
+        "orientation": "auto"
+      },
+      "title": "Rate Limited",
+      "description": "Requests rejected with 429 by the per-IP rate limiter (RATE_LIMIT_RPS / RATE_LIMIT_BURST) within the time range, per gate. If this climbs while Trusted Proxy CIDRs reads 0 behind a fronting proxy, every client shares one bucket.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "yellow"
+              },
+              {
+                "value": 100,
+                "color": "red"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 0,
+        "y": 15
+      },
+      "targets": [
+        {
+          "expr": "increase(mcpgate_rate_limited_total{job=\"mcp-gate\", service=~\"$service\"}[$__range])",
+          "refId": "A",
+          "legendFormat": "{{service}}",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "transparent": false,
+      "repeatDirection": "h",
+      "options": {
+        "graphMode": "area",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "percentChangeColorMode": "standard",
+        "orientation": "auto"
+      },
+      "title": "Concurrency Limited",
+      "description": "Requests rejected with 503 because the client IP reached MAX_CONCURRENT_REQUESTS or the gate reached MAX_TOTAL_CONNECTIONS, within the time range, per gate. Long-lived SSE streams hold their slot for their whole lifetime.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "yellow"
+              },
+              {
+                "value": 10,
+                "color": "red"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 4,
+        "y": 15
+      },
+      "targets": [
+        {
+          "expr": "increase(mcpgate_concurrent_limited_total{job=\"mcp-gate\", service=~\"$service\"}[$__range])",
+          "refId": "A",
+          "legendFormat": "{{service}}",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "transparent": false,
+      "repeatDirection": "h",
+      "options": {
+        "graphMode": "area",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "percentChangeColorMode": "standard",
+        "orientation": "auto"
+      },
+      "title": "Origin Rejected",
+      "description": "Requests rejected with 403 because Origin was not in ALLOWED_ORIGINS, within the time range, per gate. Always 0 while ALLOWED_ORIGINS is unset (validation off). Once enabled this is the only signal of a wrong allow-list: it rejects every browser request while /healthz stays green.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "yellow"
+              },
+              {
+                "value": 10,
+                "color": "red"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 8,
+        "y": 15
+      },
+      "targets": [
+        {
+          "expr": "increase(mcpgate_origin_rejected_total{job=\"mcp-gate\", service=~\"$service\"}[$__range])",
+          "refId": "A",
+          "legendFormat": "{{service}}",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "transparent": false,
+      "repeatDirection": "h",
+      "options": {
+        "graphMode": "area",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "percentChangeColorMode": "standard",
+        "orientation": "auto"
+      },
+      "title": "Deprecated access_token Query",
+      "description": "Requests that carried an access_token query parameter, within the time range, per gate. The request still succeeds — the parameter is stripped before proxying — so this counter is the only sign of it. RFC 6750 §2.3 deprecates the method and MCP 2026-07-28 disallows it; a token in a URL ends up in access logs. Fix the client.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "yellow"
+              },
+              {
+                "value": 10,
+                "color": "red"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 12,
+        "y": 15
+      },
+      "targets": [
+        {
+          "expr": "increase(mcpgate_deprecated_access_token_query_total{job=\"mcp-gate\", service=~\"$service\"}[$__range])",
+          "refId": "A",
+          "legendFormat": "{{service}}",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "transparent": false,
+      "repeatDirection": "h",
+      "options": {
+        "graphMode": "area",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "percentChangeColorMode": "standard",
+        "orientation": "auto"
+      },
+      "title": "Trusted Proxy CIDRs",
+      "description": "Number of TRUSTED_PROXIES CIDRs parsed at startup, per gate. 0 is correct only when clients connect to the gate directly; behind Traefik or Cloudflare it means every request is attributed to the proxy's IP, which silently defeats per-IP rate limiting.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "—",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "yellow"
+              },
+              {
+                "value": 1,
+                "color": "green"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 16,
+        "y": 15
+      },
+      "targets": [
+        {
+          "expr": "mcpgate_trusted_proxy_cidrs{job=\"mcp-gate\", service=~\"$service\"}",
+          "refId": "A",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "transparent": false,
+      "repeatDirection": "h",
+      "options": {
+        "graphMode": "area",
+        "colorMode": "none",
+        "justifyMode": "auto",
+        "textMode": "name",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "percentChangeColorMode": "standard",
+        "orientation": "auto"
+      },
+      "title": "Rate-Limit Backend",
+      "description": "Active rate-limit backend, per gate. 'memory' limits each replica independently; 'redis' (REDIS_ADDR set) coordinates across replicas and fails open on Redis errors — see the Redis Rate Limiter row.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "noValue": "—"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 20,
+        "y": 15
+      },
+      "targets": [
+        {
+          "expr": "mcpgate_ratelimit_backend_info{job=\"mcp-gate\", service=~\"$service\"} == 1",
+          "refId": "A",
+          "legendFormat": "{{service}}: {{backend}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "transparent": false,
+      "repeatDirection": "h",
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "title": "Admission Rejections",
+      "description": "Requests rejected before authentication, by reason, per gate",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "targets": [
+        {
+          "expr": "rate(mcpgate_rate_limited_total{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval])",
+          "refId": "A",
+          "legendFormat": "{{service}} rate limited (429)"
+        },
+        {
+          "expr": "rate(mcpgate_concurrent_limited_total{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval])",
+          "refId": "B",
+          "legendFormat": "{{service}} concurrency limited (503)"
+        },
+        {
+          "expr": "rate(mcpgate_origin_rejected_total{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval])",
+          "refId": "C",
+          "legendFormat": "{{service}} origin rejected (403)"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "transparent": false,
+      "repeatDirection": "h",
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "title": "In-Flight Requests & Connections",
+      "description": "Active HTTP requests and open TCP connections, per gate. Each open SSE stream is one long-lived request, so a plateau here is normal. Requests approaching MAX_TOTAL_CONNECTIONS (default 1000) start returning 503.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "targets": [
+        {
+          "expr": "mcpgate_active_requests{job=\"mcp-gate\", service=~\"$service\"}",
+          "refId": "A",
+          "legendFormat": "{{service}} requests"
+        },
+        {
+          "expr": "mcpgate_active_connections{job=\"mcp-gate\", service=~\"$service\"}",
+          "refId": "B",
+          "legendFormat": "{{service}} connections"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "collapsed": false,
+      "id": 0,
+      "panels": [],
+      "title": "Authentication",
+      "gridPos": {
+        "x": 0,
+        "y": 28,
         "h": 1,
         "w": 24
       }
@@ -442,7 +936,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 15
+        "y": 29
       },
       "targets": [
         {
@@ -507,7 +1001,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 15
+        "y": 29
       },
       "targets": [
         {
@@ -572,7 +1066,7 @@
         "h": 5,
         "w": 6,
         "x": 12,
-        "y": 15
+        "y": 29
       },
       "targets": [
         {
@@ -637,7 +1131,7 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 15
+        "y": 29
       },
       "targets": [
         {
@@ -679,7 +1173,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 20
+        "y": 34
       },
       "targets": [
         {
@@ -737,7 +1231,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 20
+        "y": 34
       },
       "targets": [
         {
@@ -757,7 +1251,7 @@
       "title": "Upstream Proxy",
       "gridPos": {
         "x": 0,
-        "y": 28,
+        "y": 42,
         "h": 1,
         "w": 24
       }
@@ -818,7 +1312,7 @@
         "h": 5,
         "w": 12,
         "x": 0,
-        "y": 29
+        "y": 43
       },
       "targets": [
         {
@@ -884,7 +1378,7 @@
         "h": 5,
         "w": 12,
         "x": 12,
-        "y": 29
+        "y": 43
       },
       "targets": [
         {
@@ -926,7 +1420,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 34
+        "y": 48
       },
       "targets": [
         {
@@ -978,13 +1472,107 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 34
+        "y": 48
       },
       "targets": [
         {
           "expr": "sum by (status_code, service) (rate(mcpgate_proxy_requests_total{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "{{service}} {{status_code}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "transparent": false,
+      "repeatDirection": "h",
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "title": "SSE Disconnects",
+      "description": "SSE streams that ended before upstream finished them, by reason, per gate. idle_timeout: no bytes for SSE_IDLE_TIMEOUT (default 5m) and the gate closed the stream; client_cancel: the client went away. A series appears only after its first event.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 56
+      },
+      "targets": [
+        {
+          "expr": "sum by (reason, service) (rate(mcpgate_sse_disconnects_total{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{service}} {{reason}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "transparent": false,
+      "repeatDirection": "h",
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "title": "Upstream Response Size",
+      "description": "P50, P95 and P99 upstream response body size, per gate. Observed when the body closes, so a long SSE stream is counted once, at its full size, when it ends. Buckets top out at 64 MiB.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 56
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(mcpgate_proxy_response_bytes_bucket{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval])) by (le, service))",
+          "refId": "A",
+          "legendFormat": "{{service}} p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(mcpgate_proxy_response_bytes_bucket{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval])) by (le, service))",
+          "refId": "B",
+          "legendFormat": "{{service}} p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(mcpgate_proxy_response_bytes_bucket{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval])) by (le, service))",
+          "refId": "C",
+          "legendFormat": "{{service}} p99"
         }
       ]
     },
@@ -996,7 +1584,7 @@
       "title": "JWKS Health",
       "gridPos": {
         "x": 0,
-        "y": 42,
+        "y": 64,
         "h": 1,
         "w": 24
       }
@@ -1053,7 +1641,7 @@
         "h": 5,
         "w": 8,
         "x": 0,
-        "y": 43
+        "y": 65
       },
       "targets": [
         {
@@ -1119,7 +1707,7 @@
         "h": 5,
         "w": 8,
         "x": 8,
-        "y": 43
+        "y": 65
       },
       "targets": [
         {
@@ -1186,7 +1774,7 @@
         "h": 5,
         "w": 8,
         "x": 16,
-        "y": 43
+        "y": 65
       },
       "targets": [
         {
@@ -1212,8 +1800,8 @@
           "sort": "desc"
         }
       },
-      "title": "JWKS Refresh Error Rate",
-      "description": "Rate of JWKS refresh failures over time, per gate",
+      "title": "JWKS Refresh & Poll Errors",
+      "description": "Rate of JWKS failures over time, per gate. refresh: fetching the JWKS endpoint failed (liveness — the alerted signal). poll: the gate's own key-set poll could not read its cache, so the key-count and key-change metrics went stale (correctness).",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1228,13 +1816,18 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 48
+        "y": 70
       },
       "targets": [
         {
           "expr": "rate(mcpgate_jwks_refresh_errors_total{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval])",
           "refId": "A",
-          "legendFormat": "{{service}}"
+          "legendFormat": "{{service}} refresh"
+        },
+        {
+          "expr": "rate(mcpgate_jwks_poll_errors_total{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval])",
+          "refId": "B",
+          "legendFormat": "{{service}} poll"
         }
       ]
     },
@@ -1274,7 +1867,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 48
+        "y": 70
       },
       "targets": [
         {
@@ -1324,7 +1917,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 57
+            "y": 79
           },
           "targets": [
             {
@@ -1366,7 +1959,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 57
+            "y": 79
           },
           "targets": [
             {
@@ -1424,7 +2017,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 65
+            "y": 87
           },
           "targets": [
             {
@@ -1440,7 +2033,110 @@
       "title": "MCP Protocol",
       "gridPos": {
         "x": 0,
-        "y": 56,
+        "y": 78,
+        "h": 1,
+        "w": 24
+      }
+    },
+    {
+      "type": "row",
+      "collapsed": true,
+      "id": 0,
+      "panels": [
+        {
+          "type": "timeseries",
+          "transparent": false,
+          "repeatDirection": "h",
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "title": "Redis Fail-Open Errors",
+          "description": "Redis rate-limit calls that failed and let the request through unlimited, by kind (timeout = exceeded REDIS_TIMEOUT, unavailable = connection refused, other), per gate. Any sustained rate means rate limiting is not being enforced.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "cps"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 96
+          },
+          "targets": [
+            {
+              "expr": "sum by (kind, service) (rate(mcpgate_ratelimit_redis_errors_total{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "{{service}} {{kind}}"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "transparent": false,
+          "repeatDirection": "h",
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "title": "Redis Allow Latency",
+          "description": "P50 and P99 latency of the Redis rate-limit call, per gate. This is added to every request; p99 above ~10ms on a local Redis points to a network or load problem, and calls past REDIS_TIMEOUT fail open.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 96
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.50, sum(rate(mcpgate_ratelimit_redis_latency_seconds_bucket{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval])) by (le, service))",
+              "refId": "A",
+              "legendFormat": "{{service}} p50"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(mcpgate_ratelimit_redis_latency_seconds_bucket{job=\"mcp-gate\", service=~\"$service\"}[$__rate_interval])) by (le, service))",
+              "refId": "B",
+              "legendFormat": "{{service}} p99"
+            }
+          ]
+        }
+      ],
+      "title": "Redis Rate Limiter",
+      "gridPos": {
+        "x": 0,
+        "y": 95,
         "h": 1,
         "w": 24
       }
@@ -1506,7 +2202,7 @@
             "h": 5,
             "w": 6,
             "x": 0,
-            "y": 74
+            "y": 105
           },
           "targets": [
             {
@@ -1572,7 +2268,7 @@
             "h": 5,
             "w": 6,
             "x": 6,
-            "y": 74
+            "y": 105
           },
           "targets": [
             {
@@ -1620,7 +2316,7 @@
             "h": 5,
             "w": 6,
             "x": 12,
-            "y": 74
+            "y": 105
           },
           "targets": [
             {
@@ -1686,7 +2382,7 @@
             "h": 5,
             "w": 6,
             "x": 18,
-            "y": 74
+            "y": 105
           },
           "targets": [
             {
@@ -1728,7 +2424,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 79
+            "y": 110
           },
           "targets": [
             {
@@ -1770,7 +2466,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 79
+            "y": 110
           },
           "targets": [
             {
@@ -1794,7 +2490,7 @@
       "title": "Runtime",
       "gridPos": {
         "x": 0,
-        "y": 73,
+        "y": 104,
         "h": 1,
         "w": 24
       }
@@ -1829,7 +2525,7 @@
             "h": 12,
             "w": 24,
             "x": 0,
-            "y": 88
+            "y": 119
           },
           "targets": [
             {
@@ -1845,7 +2541,7 @@
       "title": "Trace Explorer",
       "gridPos": {
         "x": 0,
-        "y": 87,
+        "y": 118,
         "h": 1,
         "w": 24
       }
@@ -1858,7 +2554,7 @@
       "title": "Logs",
       "gridPos": {
         "x": 0,
-        "y": 100,
+        "y": 131,
         "h": 1,
         "w": 24
       }
@@ -1895,7 +2591,7 @@
         "h": 5,
         "w": 24,
         "x": 0,
-        "y": 101
+        "y": 132
       },
       "targets": [
         {
@@ -1930,7 +2626,7 @@
         "h": 16,
         "w": 24,
         "x": 0,
-        "y": 106
+        "y": 137
       },
       "targets": [
         {

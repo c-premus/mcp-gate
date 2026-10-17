@@ -108,8 +108,11 @@ function timeSinceKeyChangeStat(): StatPanel {
 
 function refreshErrorRateTimeseries(): TimeseriesPanel {
   return timeseriesPanel()
-    .title("JWKS Refresh Error Rate")
-    .description("Rate of JWKS refresh failures over time, per gate")
+    .title("JWKS Refresh & Poll Errors")
+    .description(
+      "Rate of JWKS failures over time, per gate. refresh: fetching the JWKS endpoint failed (liveness — the alerted signal). " +
+        "poll: the gate's own key-set poll could not read its cache, so the key-count and key-change metrics went stale (correctness)."
+    )
     .datasource(PROMETHEUS)
     .unit("cps")
     .span(12)
@@ -119,8 +122,16 @@ function refreshErrorRateTimeseries(): TimeseriesPanel {
         .expr(
           `rate(mcpgate_jwks_refresh_errors_total{${SELECTOR}}[$__rate_interval])`
         )
-        .legendFormat("{{service}}")
+        .legendFormat("{{service}} refresh")
         .refId("A")
+    )
+    .withTarget(
+      new PrometheusQuery()
+        .expr(
+          `rate(mcpgate_jwks_poll_errors_total{${SELECTOR}}[$__rate_interval])`
+        )
+        .legendFormat("{{service}} poll")
+        .refId("B")
     );
 }
 
