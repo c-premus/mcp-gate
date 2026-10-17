@@ -1,13 +1,14 @@
 module github.com/c-premus/mcp-gate
 
-// The `go` directive is a deliberately-lagging LANGUAGE FLOOR, not the version
-// this builds with -- see the `toolchain` line below and systemPatterns.md,
-// "The `go` Directive Is CodeQL's Language Version". CodeQL's Go extractor runs
-// with GOTOOLCHAIN=local against whatever Go the GitHub runner image carries,
-// so a floor above that (the image caches 1.24/1.25/1.26 as of 2026-08-26)
-// fails extraction outright and disables code scanning. Raise it only once
-// CodeQL ships support for the newer Go AND the runner images cache it.
-go 1.26.0
+// The `go` directive is a LANGUAGE FLOOR, not the version this builds with --
+// see the `toolchain` line below and systemPatterns.md, "The `go` Directive Is
+// CodeQL's Language Version". CodeQL's Go extractor runs with GOTOOLCHAIN=local,
+// so a floor above the Go that CodeQL can run fails extraction outright and
+// disables code scanning. Raised 1.26 -> 1.27 on 2026-10-17, once CodeQL 2.27.2
+// (codeql-action 4.39.0) installed go1.27.2 itself and its autobuilder was
+// built with go1.27.1. Raise it again only after the mirror's CodeQL Go log
+// shows the same for the next minor.
+go 1.27.0
 
 toolchain go1.27.2
 

@@ -34,9 +34,9 @@ issue first.
 
 ## Prerequisites
 
-- Go 1.26+. `go.mod` declares a `go 1.26` language floor and a newer
+- Go 1.27+. `go.mod` declares a `go 1.27` language floor and a
   `toolchain` line; with the default `GOTOOLCHAIN=auto`, Go downloads that
-  toolchain on first use. Code must still compile at the 1.26 floor.
+  toolchain on first use. Code must still compile at the 1.27 floor.
 - [golangci-lint](https://golangci-lint.run/) at the version pinned in
   `.github/workflows/ci.yaml` (v2.14.0 at the time of writing)
 - Node.js 24, only if you change the Grafana dashboard
