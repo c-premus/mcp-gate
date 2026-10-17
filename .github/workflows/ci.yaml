@@ -25,7 +25,7 @@ jobs:
       - name: Lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a  # v9.3.0
         with:
-          version: v2.14.0
+          version: v2.15.0
 
   test:
     name: Test
@@ -82,7 +82,7 @@ jobs:
       - name: Install govulncheck
         # Pinned version — @latest is a supply-chain replay surface and not
         # visible to Renovate. Bump explicitly when needed.
-        run: go install golang.org/x/vuln/cmd/govulncheck@v1.2.0
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
 
       - name: Build binary for vulnerability scan
         run: go build -o bin/mcp-gate ./cmd/mcp-gate
