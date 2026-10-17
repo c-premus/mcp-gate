@@ -8,6 +8,13 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.21.1] - 2026-10-17
+
+### Maintenance
+
+- chore(deps): update go toolchain
+- chore(deps): update module github.com/rhysd/actionlint to v1.7.12
+
 ## [0.21.0] - 2026-10-17
 
 ### Features
@@ -16,6 +23,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 ### Maintenance
 
+- chore(changelog): update for v0.21.0
 - chore(go): raise the language floor to 1.27
 - chore(devcontainer): add the GitHub CLI feature
 
@@ -1274,6 +1282,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.21.1]: https://github.com/c-premus/mcp-gate/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/c-premus/mcp-gate/compare/v0.20.15...v0.21.0
 [0.20.15]: https://github.com/c-premus/mcp-gate/compare/v0.20.14...v0.20.15
 [0.20.14]: https://github.com/c-premus/mcp-gate/compare/v0.20.13...v0.20.14
