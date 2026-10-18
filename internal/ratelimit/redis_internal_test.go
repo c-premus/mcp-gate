@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/c-premus/mcp-gate/internal/realip"
-	redisrate "github.com/go-redis/redis_rate/v10"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -30,14 +29,14 @@ func okStub() http.Handler {
 type fakeAllower struct {
 	mu          sync.Mutex
 	err         error
-	result      *redisrate.Result
+	result      result
 	calls       int
 	lastKey     string
 	lastTimeout time.Duration
 	timeoutCtx  bool
 }
 
-func (f *fakeAllower) Allow(ctx context.Context, key string, _ redisrate.Limit) (*redisrate.Result, error) {
+func (f *fakeAllower) Allow(ctx context.Context, key string, _ limit) (result, error) {
 	f.mu.Lock()
 	f.calls++
 	f.lastKey = key
@@ -51,10 +50,10 @@ func (f *fakeAllower) Allow(ctx context.Context, key string, _ redisrate.Limit) 
 
 	if timeoutCtx {
 		<-ctx.Done()
-		return nil, ctx.Err()
+		return result{}, ctx.Err()
 	}
 	if err != nil {
-		return nil, err
+		return result{}, err
 	}
 	return res, nil
 }
@@ -145,7 +144,7 @@ func TestRedisLimiter_FailOpenOnConnRefused(t *testing.T) {
 
 func TestRedisLimiter_KeyShape(t *testing.T) {
 	t.Parallel()
-	fake := &fakeAllower{result: &redisrate.Result{Allowed: 1, Remaining: 19}}
+	fake := &fakeAllower{result: result{allowed: true}}
 	rl := newRedisLimiter(fake, RedisConfig{
 		RPS: 10, Burst: 20, KeyPrefix: "mcpgate:rl:",
 	})
@@ -165,7 +164,7 @@ func TestRedisLimiter_KeyShape(t *testing.T) {
 
 func TestRedisLimiter_AppliesTimeout(t *testing.T) {
 	t.Parallel()
-	fake := &fakeAllower{result: &redisrate.Result{Allowed: 1, Remaining: 19}}
+	fake := &fakeAllower{result: result{allowed: true}}
 	rl := newRedisLimiter(fake, RedisConfig{
 		RPS: 10, Burst: 20, KeyPrefix: "p:", Timeout: 250 * time.Millisecond,
 	})
@@ -182,7 +181,7 @@ func TestRedisLimiter_AppliesTimeout(t *testing.T) {
 
 func TestRedisLimiter_DefaultTimeout(t *testing.T) {
 	t.Parallel()
-	fake := &fakeAllower{result: &redisrate.Result{Allowed: 1, Remaining: 19}}
+	fake := &fakeAllower{result: result{allowed: true}}
 	rl := newRedisLimiter(fake, RedisConfig{
 		RPS: 10, Burst: 20, KeyPrefix: "p:",
 	})

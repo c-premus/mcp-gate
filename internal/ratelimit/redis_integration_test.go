@@ -201,7 +201,7 @@ func TestIntegration_FailOpenWhenRedisDown(t *testing.T) {
 
 // clearKeys deletes all rate: prefixed keys under the given prefix so a
 // repeated `go test -count=N` run is not contaminated by leftover state.
-// redis_rate prepends "rate:" to every key, so the SCAN pattern is
+// The limiter namespaces every key under "rate:", so the SCAN pattern is
 // rate:<prefix>*.
 func clearKeys(prefix string) error {
 	ctx := context.Background()

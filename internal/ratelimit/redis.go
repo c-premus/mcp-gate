@@ -13,16 +13,15 @@ import (
 
 	"github.com/c-premus/mcp-gate/internal/metrics"
 	"github.com/c-premus/mcp-gate/internal/realip"
-	redisrate "github.com/go-redis/redis_rate/v10"
 	"github.com/redis/go-redis/v9"
 )
 
 // RedisConfig holds Redis-backed rate limiter configuration.
 //
 // RPS and Burst share semantics with the in-memory Limiter Config so operators
-// can switch backends without re-tuning. KeyPrefix is concatenated with the
-// client IP to form the bucket key (the redis_rate library further prepends
-// its own "rate:" namespace, so the final Redis key is rate:<KeyPrefix><ip>).
+// can switch backends without re-tuning — fractional RPS included. KeyPrefix
+// is concatenated with the client IP to form the bucket key, under the
+// "rate:" namespace, so the final Redis key is rate:<KeyPrefix><ip>.
 //
 // Timeout bounds each Allow call against Redis. Beyond it the request fails
 // open: the request is forwarded to next, the timeout/unavailable counter
@@ -35,18 +34,11 @@ type RedisConfig struct {
 	Timeout   time.Duration
 }
 
-// allower is the subset of redis_rate.Limiter we depend on. Defining it here
-// (rather than taking *redis_rate.Limiter directly) lets tests inject a fake
-// to exercise the error-classification branches without standing up a Redis.
-type allower interface {
-	Allow(ctx context.Context, key string, limit redisrate.Limit) (*redisrate.Result, error)
-}
-
 // RedisLimiter enforces a per-IP rate limit backed by Redis. Multiple replicas
 // sharing one Redis instance enforce the configured RPS globally per IP.
 type RedisLimiter struct {
 	limiter   allower
-	limit     redisrate.Limit
+	limit     limit
 	keyPrefix string
 	timeout   time.Duration
 }
@@ -54,7 +46,7 @@ type RedisLimiter struct {
 // NewRedisLimiter constructs a RedisLimiter from a redis client.
 // The caller is responsible for the client's lifecycle (Close on shutdown).
 func NewRedisLimiter(client redis.UniversalClient, cfg RedisConfig) *RedisLimiter {
-	return newRedisLimiter(redisrate.NewLimiter(client), cfg)
+	return newRedisLimiter(gcraScript{client: client}, cfg)
 }
 
 func newRedisLimiter(l allower, cfg RedisConfig) *RedisLimiter {
@@ -62,12 +54,8 @@ func newRedisLimiter(l allower, cfg RedisConfig) *RedisLimiter {
 		cfg.Timeout = 100 * time.Millisecond
 	}
 	return &RedisLimiter{
-		limiter: l,
-		limit: redisrate.Limit{
-			Rate:   int(math.Ceil(cfg.RPS)),
-			Burst:  cfg.Burst,
-			Period: time.Second,
-		},
+		limiter:   l,
+		limit:     newLimit(cfg.RPS, cfg.Burst),
 		keyPrefix: cfg.KeyPrefix,
 		timeout:   cfg.Timeout,
 	}
@@ -97,9 +85,9 @@ func (r *RedisLimiter) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if res.Allowed <= 0 {
+		if !res.allowed {
 			metrics.RateLimitedTotal.Inc()
-			retryAfter := retryAfterSeconds(res.RetryAfter)
+			retryAfter := retryAfterSeconds(res.retryAfter)
 			slog.Debug("rate limited (redis)",
 				"client_ip", clientIP,
 				"path", req.URL.Path,
@@ -136,7 +124,7 @@ func classifyRedisErr(err error) string {
 	}
 }
 
-// retryAfterSeconds rounds a redis_rate retry-after duration up to whole
+// retryAfterSeconds rounds a GCRA retry-after duration up to whole
 // seconds with a floor of 1, matching the Retry-After header convention used
 // by the in-memory Limiter for parity across backends.
 func retryAfterSeconds(d time.Duration) int {
