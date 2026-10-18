@@ -14,7 +14,7 @@ This guide covers two things: creating an OAuth client in your OIDC provider, an
 
 - An MCP server running and reachable from mcp-gate over HTTP
 - An OIDC/OAuth 2.1 provider (Keycloak, Authentik, Okta, Auth0, or similar)
-- A public HTTPS domain for mcp-gate (e.g., `mcp.example.com`)
+- A public HTTPS domain for mcp-gate (e.g., `mcp.example.com`). mcp-gate refuses to start with a plain `http://` `RESOURCE_URI` or `AUTHORIZATION_SERVER`, except on `localhost` or a loopback address, which is allowed for local testing
 - The Docker image (`cpremus/mcp-gate` or `ghcr.io/c-premus/mcp-gate`) or a binary built from source
 
 ## Step 1: Create an OAuth Client
@@ -30,7 +30,8 @@ Create a new OAuth/OIDC client (sometimes called an "application" or "app integr
 | **PKCE method** | S256 (required by OAuth 2.1) |
 | **Redirect URI** | `https://claude.ai/api/mcp/auth_callback` |
 | **Scopes** | `openid` at minimum |
-| **Token format** | JWT, signed with RS256 |
+| **Token format** | JWT, signed with RS256. `typ` header `at+jwt` is preferred; `JWT` is accepted unless `STRICT_TOKEN_TYP=true` |
+| **Token binding** | Plain bearer tokens. DPoP- or mTLS-bound tokens (those carrying a `cnf` claim) are refused, because mcp-gate does not verify the proof of possession |
 
 ### Provider-specific terminology
 
@@ -43,7 +44,7 @@ The settings above go by different names depending on your provider:
 
 ### Scopes
 
-mcp-gate requires at least `openid` by default. If you set `REQUIRED_SCOPES` on mcp-gate to additional values (e.g., `openid,profile,email`), the OAuth client must be authorized to issue those scopes.
+mcp-gate requires at least `openid` by default. If you set `REQUIRED_SCOPES` on mcp-gate to additional values (e.g., `openid,profile,email`), the OAuth client must be authorized to issue those scopes. `REQUIRED_SCOPES` cannot be empty — see [Token types and `REQUIRED_SCOPES`](#environment-variables) for why.
 
 Scope matching is hierarchy-aware, as MCP 2026-07-28 requires: a granted scope that is a `:`-delimited prefix of a required one satisfies it, so a token carrying `files` satisfies a required `files:read`. It never works the other way round (`files:read` does not satisfy `files`), and the prefix must end at the `:` (`file` does not satisfy `files:read`). For providers that issue flat scopes such as `openid` and `profile`, this reduces to exact matching. The `scope` claim is accepted either as a space-delimited string (RFC 6749 §3.3) or as a JSON array.
 
@@ -177,7 +178,7 @@ docker run -d \
   -e JWKS_URI=https://auth.example.com/realms/main/protocol/openid-connect/certs \
   -e EXPECTED_ISSUER=https://auth.example.com/realms/main \
   -e EXPECTED_AUDIENCE=mcp-gate-client \
-  cpremus/mcp-gate:0.20
+  cpremus/mcp-gate:0.21
 ```
 
 Images are published for `linux/amd64` to Docker Hub (`cpremus/mcp-gate`) and GHCR (`ghcr.io/c-premus/mcp-gate`). Tags are `X.Y.Z`, `X.Y` and `latest`, with no `v` prefix. Pin a version: a floating `latest` makes "which build is running?" hard to answer, and it is the question the bundled alert rules ask.
@@ -233,6 +234,20 @@ Expected output:
   "resource_documentation": "https://github.com/c-premus/mcp-gate"
 }
 ```
+
+Check the challenge a client gets before it has a token (any path other than the two above):
+
+```bash
+curl -si http://localhost:8080/
+```
+
+Expected: `401`, `Cache-Control: no-store`, an empty body, and a header like
+
+```http
+WWW-Authenticate: Bearer realm="mcp.example.com", scope="openid profile", resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource"
+```
+
+`resource_metadata` is what an MCP client follows to discover the authorization server, so if it points anywhere other than your public `RESOURCE_URI`, discovery will fail.
 
 mcp-gate fetches the JWKS once at startup and exits if that fails (see Troubleshooting), so a running gate had keys when it started. `/healthz` returns `503` (body `unavailable`) if the key store later becomes empty. `/healthz` is also subject to the rate and concurrency limits, so a busy gate can return `429` or `503` to probes. The metrics port (`:9090`) also serves a `/healthz`, but that one always returns 200 and only shows the process is alive.
 
@@ -344,9 +359,16 @@ Build panels with the factories in `grafana/src/panels/defaults.ts`, not with th
 
 **"required environment variable X is not set"**: A required env var is missing. See the table in Step 3.
 
+**Configuration refused at startup** — each message names the variable:
+- `RESOURCE_URI must use https://` / `AUTHORIZATION_SERVER must use https://` — plain `http://` is only accepted for `localhost` and loopback addresses.
+- `RESOURCE_URI is not a valid URL: must be absolute` — include the scheme and host (`https://mcp.example.com`, not `mcp.example.com` or `/mcp`).
+- `RESOURCE_URI must not contain a fragment` / `must not contain a query` — RFC 9728 resource identifiers carry neither; remove the `#…` or `?…`.
+- `REQUIRED_SCOPES must name at least one scope` — the value resolved to nothing (e.g. `REQUIRED_SCOPES=","`). Unset it to get the `openid` default; see "Token types and `REQUIRED_SCOPES`" for why it cannot be empty.
+- `STRICT_TOKEN_TYP is not a valid boolean` — use `true` or `false`.
+
 ### 401 Unauthorized: "The access token is invalid or expired"
 
-Each rejection is logged at `warn` with a `category` field (`expired`, `wrong_audience`, `wrong_issuer`, `malformed`, …). `LOG_LEVEL=debug` adds the library's raw error message.
+Each rejection is logged at `warn` as `token rejected`. When the JWT itself fails validation the line carries `reason=validation_failed` plus a `category` (`expired`, `wrong_audience`, `wrong_issuer`, `malformed`, …), and `LOG_LEVEL=debug` adds the library's raw error message. The checks made after a token validates log their own `reason`: `wrong_typ`, `unsupported_crit`, `sender_constrained` or `missing_sub`. The same names are the `outcome` label on `mcpgate_auth_validations_total`.
 
 **Missing claims or wrong token type**: tokens without `sub` or `exp` are rejected, as are tokens whose `typ` header is not `at+jwt`, `application/at+jwt` or `JWT` (with `STRICT_TOKEN_TYP=true`, only the first two). Some providers issue opaque (non-JWT) access tokens unless configured otherwise.
 
@@ -364,7 +386,7 @@ Each rejection is logged at `warn` with a `category` field (`expired`, `wrong_au
 
 ### 400 Bad Request: `invalid_request`
 
-The `Authorization` header is malformed: it appears more than once, or it says `Bearer` with no token after it. A request with no `Authorization` header (or a different scheme such as `Basic`) gets a `401` with no body instead — that is the normal first step of the OAuth flow.
+The `Authorization` header is malformed: it appears more than once, or it says `Bearer` with no token after it. It is logged at `warn` as `request rejected` with `reason=multiple_authorization_headers` or `reason=empty_bearer_token`, and counted as `outcome="invalid_request"`. A request with no `Authorization` header (or a different scheme such as `Basic`) gets a `401` with no body instead — that is the normal first step of the OAuth flow.
 
 ### 403 Forbidden: "Required scope not granted"
 
