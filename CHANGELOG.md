@@ -8,10 +8,18 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.21.2] - 2026-10-18
+
+### Fixes
+
+- fix(ratelimit): replace abandoned redis_rate with an in-repo GCRA script
+- fix(auth): close OAuth 2.1 / RFC 9068 resource-server gaps
+
 ## [0.21.1] - 2026-10-17
 
 ### Maintenance
 
+- chore(changelog): update for v0.21.1
 - chore(deps): update go toolchain
 - chore(deps): update module github.com/rhysd/actionlint to v1.7.12
 
@@ -1282,6 +1290,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.21.2]: https://github.com/c-premus/mcp-gate/compare/v0.21.1...v0.21.2
 [0.21.1]: https://github.com/c-premus/mcp-gate/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/c-premus/mcp-gate/compare/v0.20.15...v0.21.0
 [0.20.15]: https://github.com/c-premus/mcp-gate/compare/v0.20.14...v0.20.15
