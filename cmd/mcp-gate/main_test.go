@@ -1908,6 +1908,47 @@ func TestRunHealthcheck_EnvWiring(t *testing.T) {
 //
 // This is the mux-level counterpart to internal/metadata's TestHandler_Methods:
 // the POST/PUT/DELETE arms there are unreachable in production, this one is not.
+// TestRun_MetadataOtherMethods405 pins the wire behaviour, not just the
+// handler's: a non-GET method on the metadata document gets 405 with
+// `Allow: GET, HEAD` (RFC 9110 §15.5.6). With the route registered as a "GET "
+// pattern, ServeMux answered POST with a 307 to the subtree form, which 404'd —
+// the handler's own 405 was unreachable, and handler-level tests could not see it.
+func TestRun_MetadataOtherMethods405(t *testing.T) {
+	jwks := newTestJWKS(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	cfg := defaultTestConfig(jwks.server.URL, upstream.URL)
+	result, cancel, _ := startRun(t, &cfg)
+	defer cancel()
+
+	// Do not follow redirects: a 307 is exactly the regression being pinned.
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	for _, method := range []string{http.MethodPost, http.MethodDelete, http.MethodPut} {
+		req, err := http.NewRequestWithContext(t.Context(), method,
+			"http://"+result.Addr+"/.well-known/oauth-protected-resource", http.NoBody)
+		if err != nil {
+			t.Fatalf("new request: %v", err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("%s: %v", method, err)
+		}
+		_ = resp.Body.Close()
+
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("%s status = %d, want 405", method, resp.StatusCode)
+		}
+		if got := resp.Header.Get("Allow"); got != "GET, HEAD" {
+			t.Errorf("%s Allow = %q, want %q", method, got, "GET, HEAD")
+		}
+	}
+}
+
 func TestRun_MetadataHEAD(t *testing.T) {
 	jwks := newTestJWKS(t)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

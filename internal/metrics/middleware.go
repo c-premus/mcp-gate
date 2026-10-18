@@ -38,23 +38,21 @@ func truncate(s string, maxBytes int) string {
 // This runs OUTSIDE the mux, so it must independently reproduce the mux's
 // routing decision or the route label lies about where a request went.
 //
-// That includes the METHOD, not just the path. The mux registers the metadata
-// document and /healthz as method-specific patterns ("GET /healthz"), so a
-// POST to either falls through to the catch-all and is proxied — authenticated,
-// and 401'd. Classifying on path alone labelled those as route="healthz",
-// producing a health route that emits 401s, and suppressed their MCP header
-// metrics, which are gated on route == "proxy". HEAD is included because
-// ServeMux routes HEAD to a "GET " pattern.
+// That includes the METHOD, not just the path. The mux registers /healthz as a
+// method-specific pattern ("GET /healthz"), so a POST to it falls through to
+// the catch-all and is proxied — authenticated, and 401'd. Classifying on path
+// alone labelled those as route="healthz", producing a health route that emits
+// 401s, and suppressed their MCP header metrics, which are gated on
+// route == "proxy". HEAD is included because ServeMux routes HEAD to a "GET "
+// pattern. The metadata document is registered for every method (its handler
+// answers 405 itself), so it is metadata traffic regardless of method.
 func RouteClassifier(r *http.Request) string {
 	path := r.URL.Path
-	// The subtree 404 handler is registered without a method, so it claims
-	// every method; the two document routes are GET-only.
+	// The metadata routes and the subtree 404 handler are registered without a
+	// method, so they claim every method; /healthz is GET-only.
 	getOnly := r.Method == http.MethodGet || r.Method == http.MethodHead
 	switch {
 	case path == metadata.WellKnownPath:
-		if !getOnly {
-			return "proxy"
-		}
 		return "metadata"
 	// The mux serves the RFC 9728 §3.1 path-inserted form and answers 404 for
 	// the rest of the subtree; both are metadata traffic, not proxy traffic.

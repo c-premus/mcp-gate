@@ -389,7 +389,13 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *
 	if err != nil {
 		return nil, fmt.Errorf("metadata handler: %w", err)
 	}
-	mux.HandleFunc("GET "+metadata.WellKnownPath, metadataHandler)
+	// Registered WITHOUT a method: metadata.Handler answers GET and HEAD and
+	// replies 405 with `Allow: GET, HEAD` to everything else (RFC 9110
+	// §15.5.6). A "GET " pattern here looks equivalent but is not — combined
+	// with the subtree handler below, ServeMux answers a POST to the exact
+	// path with a 307 to the trailing-slash form, which then 404s, so the
+	// handler's 405 was unreachable from the wire.
+	mux.HandleFunc(metadata.WellKnownPath, metadataHandler)
 
 	// RFC 9728 §3.1 path insertion. When the resource is mounted at a path
 	// (RESOURCE_URI=https://example.com/mcp), its metadata lives at
@@ -400,7 +406,7 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *
 	//
 	// A root-mounted resource — this deployment — registers nothing extra.
 	if suffix := metadata.PathSuffix(cfg.resourceURI); suffix != "" {
-		mux.HandleFunc("GET "+metadata.WellKnownPath+suffix, metadataHandler)
+		mux.HandleFunc(metadata.WellKnownPath+suffix, metadataHandler)
 	}
 
 	// Everything else beneath the well-known prefix is a discovery probe for a

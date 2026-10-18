@@ -311,9 +311,10 @@ func TestMiddleware_LogsMCPFields(t *testing.T) {
 }
 
 // TestRouteClassifier_MethodAwareness pins that the classifier agrees with the
-// mux on METHOD, not just path. main.go registers the metadata document and
-// /healthz as method-specific patterns ("GET /healthz"), so a POST to either
-// falls through to the catch-all and is proxied. Labelling those "healthz" /
+// mux on METHOD, not just path. main.go registers /healthz as a method-specific
+// pattern ("GET /healthz"), so a POST to it falls through to the catch-all and
+// is proxied. The metadata document is registered for every method and answers
+// 405 itself, so it stays metadata traffic. Labelling those "healthz" /
 // "metadata" produced a health route that emitted 401s and suppressed the MCP
 // header metrics, which are gated on route == "proxy".
 func TestRouteClassifier_MethodAwareness(t *testing.T) {
@@ -331,11 +332,14 @@ func TestRouteClassifier_MethodAwareness(t *testing.T) {
 		{http.MethodGet, wellKnown, "metadata"},
 		{http.MethodHead, wellKnown, "metadata"},
 
-		// Everything else falls through to the catch-all and is proxied.
+		// Other methods on /healthz fall through to the catch-all and are proxied.
 		{http.MethodPost, "/healthz", "proxy"},
 		{http.MethodPut, "/healthz", "proxy"},
 		{http.MethodDelete, "/healthz", "proxy"},
-		{http.MethodPost, wellKnown, "proxy"},
+
+		// The metadata handler answers every method (405 + Allow for non-GET).
+		{http.MethodPost, wellKnown, "metadata"},
+		{http.MethodDelete, wellKnown, "metadata"},
 
 		// The subtree 404 handler is registered WITHOUT a method, so it claims
 		// every method and stays metadata traffic regardless.
