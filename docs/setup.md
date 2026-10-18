@@ -82,8 +82,8 @@ In many providers, the issuer URL and the authorization server URL are the same 
 |----------|-------------|---------|
 | `LISTEN_ADDR` | Address to bind | `0.0.0.0:8080` |
 | `UPSTREAM_URL` | MCP server URL | `http://mcp-server:8000` |
-| `RESOURCE_URI` | Public URL of mcp-gate | `https://mcp.example.com` |
-| `AUTHORIZATION_SERVER` | OAuth provider URL | `https://auth.example.com/realms/main` |
+| `RESOURCE_URI` | Public URL of mcp-gate. Must be `https://` (plain `http://` only for `localhost`/loopback), with no fragment or query | `https://mcp.example.com` |
+| `AUTHORIZATION_SERVER` | OAuth provider's issuer URL. Must be `https://` (loopback excepted); normally identical to `EXPECTED_ISSUER` | `https://auth.example.com/realms/main` |
 | `JWKS_URI` | Provider's JWKS endpoint | `https://auth.example.com/realms/main/protocol/openid-connect/certs` |
 | `EXPECTED_ISSUER` | JWT `iss` claim value | `https://auth.example.com/realms/main` |
 | `EXPECTED_AUDIENCE` | JWT `aud` claim value (usually the client ID — see below) | `mcp-gate-client` |
@@ -92,7 +92,8 @@ In many providers, the issuer URL and the authorization server URL are the same 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `REQUIRED_SCOPES` | `openid` | Comma-separated scopes required in the JWT (hierarchy-aware, see Scopes above). Named in the `scope=` of the 403 challenge |
+| `REQUIRED_SCOPES` | `openid` | Comma-separated scopes required in the JWT (hierarchy-aware, see Scopes above). Named in the `scope=` of the 403 challenge. **Must name at least one scope** — see "Token types" below |
+| `STRICT_TOKEN_TYP` | `false` | `true` accepts only tokens whose `typ` header is `at+jwt` / `application/at+jwt` (RFC 9068 §4). Leave `false` if your provider signs access tokens with `typ: JWT` (Authentik, Keycloak by default) |
 | `SCOPES_SUPPORTED` | `openid,profile` | Scopes advertised in RFC 9728 metadata and in the `scope=` of both 401 challenges |
 | `AUTH_REALM` | *(RESOURCE_URI host)* | Protection space name in the `WWW-Authenticate` challenge. Defaults to the `RESOURCE_URI` hostname, so each deployment names its own resource |
 | `RESOURCE_DOCUMENTATION` | `https://github.com/c-premus/mcp-gate` | `resource_documentation` URL in RFC 9728 metadata. Point this at your protected resource's own docs |
@@ -100,7 +101,7 @@ In many providers, the issuer URL and the authorization server URL are the same 
 | `METRICS_ADDR` | `:9090` | Prometheus metrics bind address |
 | `TRUSTED_PROXIES` | *(empty)* | Comma-separated CIDRs for trusted reverse proxies. A bare IP is treated as `/32` or `/128`; catch-all `0.0.0.0/0` and `::/0` are refused at startup |
 | `ALLOWED_ORIGINS` | *(empty)* | Comma-separated browser origins (e.g. `https://claude.ai`). Empty disables Origin validation. See "DNS rebinding" below |
-| `RATE_LIMIT_RPS` | `10` | Per-IP requests per second |
+| `RATE_LIMIT_RPS` | `10` | Per-IP requests per second. Fractional values work (`0.5` = one request every 2 s) on both backends |
 | `RATE_LIMIT_BURST` | `20` | Per-IP burst allowance |
 | `MAX_CONCURRENT_REQUESTS` | `100` | Max in-flight requests per IP (over the limit: `503`) |
 | `MAX_TOTAL_CONNECTIONS` | `1000` | Max in-flight requests across all IPs (over the limit: `503`) |
@@ -115,6 +116,10 @@ In many providers, the issuer URL and the authorization server URL are the same 
 | `RESOURCE_NAME` | `MCP Server` | Human-readable `resource_name` in RFC 9728 metadata |
 
 **About `EXPECTED_AUDIENCE`**: MCP 2026-07-28 (via RFC 8707) wants tokens bound to the resource's canonical URI, i.e. `aud` equal to `RESOURCE_URI`. Many providers ignore the `resource` parameter and put the client ID in `aud` instead, which is why this guide uses the client ID. When `EXPECTED_AUDIENCE` differs from `RESOURCE_URI`, mcp-gate logs `audience not bound to canonical resource URI` at startup as a warning. If your provider can issue `aud=<RESOURCE_URI>`, set `EXPECTED_AUDIENCE` to that value.
+
+**Startup warnings about identity**: mcp-gate logs a warning (and still starts) when `AUTHORIZATION_SERVER` differs from `EXPECTED_ISSUER` — clients would discover one issuer and receive tokens from another, so every token fails as `wrong_issuer` — and when `RESOURCE_URI` has a trailing slash or an upper-case scheme or host, which the MCP spec's canonical form avoids.
+
+**Token types and `REQUIRED_SCOPES`**: by default mcp-gate accepts a `typ` header of `at+jwt`, `application/at+jwt`, `JWT`, or none, because many providers sign access tokens as plain `JWT`. An OIDC **ID token** from the same provider would then pass every other check (issuer, audience = client ID, expiry, subject). What an ID token does not carry is a `scope` claim, so a required scope is what keeps ID tokens out — which is why `REQUIRED_SCOPES` may not be empty and startup fails if it is. If your provider issues `typ: at+jwt` access tokens, set `STRICT_TOKEN_TYP=true` as well.
 
 **Path-mounted resources**: if `RESOURCE_URI` has a path (e.g. `https://example.com/mcp`), the metadata document is also served at the RFC 9728 §3.1 path-inserted URL `/.well-known/oauth-protected-resource/mcp`, and the challenges point there. Other paths under the well-known prefix return `404`.
 
@@ -137,7 +142,7 @@ silently at the next rotation.
 | `REDIS_PASSWORD` | *(empty)* | Redis password |
 | `REDIS_DB` | `0` | Logical database index |
 | `REDIS_TIMEOUT` | `100ms` | Per-call deadline; **fails open** beyond it |
-| `REDIS_KEY_PREFIX` | `mcpgate:rl:` | Bucket key prefix (redis_rate prepends its own `rate:`) |
+| `REDIS_KEY_PREFIX` | `mcpgate:rl:` | Bucket key prefix. Keys are `rate:<prefix><client-ip>` |
 
 The limiter **fails open**: on a Redis timeout or outage the request is forwarded
 and `mcpgate_ratelimit_redis_errors_total{kind}` is incremented, rather than the
@@ -343,7 +348,9 @@ Build panels with the factories in `grafana/src/panels/defaults.ts`, not with th
 
 Each rejection is logged at `warn` with a `category` field (`expired`, `wrong_audience`, `wrong_issuer`, `malformed`, …). `LOG_LEVEL=debug` adds the library's raw error message.
 
-**Missing claims or wrong token type**: tokens without `sub` or `exp` are rejected, as are tokens whose `typ` header is neither `at+jwt` nor `JWT`. Some providers issue opaque (non-JWT) access tokens unless configured otherwise.
+**Missing claims or wrong token type**: tokens without `sub` or `exp` are rejected, as are tokens whose `typ` header is not `at+jwt`, `application/at+jwt` or `JWT` (with `STRICT_TOKEN_TYP=true`, only the first two). Some providers issue opaque (non-JWT) access tokens unless configured otherwise.
+
+**`unsupported_crit` / `sender_constrained`**: the token carries a `crit` header (an extension mcp-gate does not implement, which RFC 7515 requires it to refuse) or a `cnf` claim (it is bound to a DPoP key or client certificate, which mcp-gate does not verify, so it cannot be accepted as a plain bearer token). Configure the provider to issue ordinary bearer tokens for this client.
 
 **Wrong audience**: The `aud` claim in the JWT does not match `EXPECTED_AUDIENCE`. The audience should be the OAuth client ID. Some providers require explicit audience configuration on the client.
 
@@ -354,6 +361,10 @@ Each rejection is logged at `warn` with a `category` field (`expired`, `wrong_au
 **Wrong signing algorithm**: mcp-gate accepts RS256 only. If the provider signs tokens with a different algorithm, change the provider's signing configuration.
 
 **Unknown key ID**: The token's `kid` header does not match any key in the JWKS. This can happen after a key rotation. mcp-gate refreshes JWKS keys at most once per minute for unknown key IDs.
+
+### 400 Bad Request: `invalid_request`
+
+The `Authorization` header is malformed: it appears more than once, or it says `Bearer` with no token after it. A request with no `Authorization` header (or a different scheme such as `Basic`) gets a `401` with no body instead — that is the normal first step of the OAuth flow.
 
 ### 403 Forbidden: "Required scope not granted"
 

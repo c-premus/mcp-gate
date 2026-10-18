@@ -20,9 +20,9 @@ Prometheus metrics are served on a separate listener (`METRICS_ADDR`, default `:
 
 ## Features
 
-- **Token validation**: RS256 only; signature, `exp`, `iss`, `aud` (string or array), and `sub` are required; 30-second clock-skew leeway.
+- **Token validation**: RS256 only; signature, `exp`, `iss`, `aud` (string or array), and `sub` are required; 30-second clock-skew leeway. `typ` must be an access-token type (`at+jwt`, `application/at+jwt`, or `JWT` unless `STRICT_TOKEN_TYP=true`); tokens with a `crit` header or a `cnf` (sender-constrained) claim are refused.
 - **Scopes**: required scopes are matched hierarchy-aware, so a granted `files` satisfies a required `files:read` (never the reverse). The `scope` claim is accepted as a space-delimited string or a JSON array.
-- **Challenges**: RFC 6750 `WWW-Authenticate` on 401/403, carrying `realm`, `resource_metadata`, and `scope`.
+- **Challenges**: RFC 6750 `WWW-Authenticate` on 401/403, carrying `realm`, `resource_metadata`, and `scope`; a malformed `Authorization` header (duplicated, or `Bearer` with no token) gets `400 invalid_request`.
 - **Credential isolation**: the client's `Authorization` and `Cookie` headers are stripped before proxying, and an `access_token` query parameter is removed and logged. The upstream authenticates with its own credentials.
 - **Streaming**: SSE responses are flushed immediately, with an idle timeout (`SSE_IDLE_TIMEOUT`) for silent streams.
 - **Abuse limits**: per-IP rate and concurrency limits, a global connection cap, and a request body cap that returns 413. The rate limiter can optionally use Redis (see below).
