@@ -478,10 +478,13 @@ func TestNoAuthorizationHeader(t *testing.T) {
 		t.Error("missing WWW-Authenticate header")
 	}
 
-	var body map[string]string
-	_ = json.Unmarshal(w.Body.Bytes(), &body)
-	if body["error"] != "unauthorized" {
-		t.Errorf("error = %q, want unauthorized", body["error"])
+	// RFC 6750 §3.1: no error code or other error information when the
+	// request carries no authentication — so no body at all.
+	if w.Body.Len() != 0 {
+		t.Errorf("body = %q, want empty", w.Body.String())
+	}
+	if got := w.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", got)
 	}
 }
 
@@ -540,17 +543,23 @@ func TestEmptyBearerToken(t *testing.T) {
 
 	mw := newMiddleware(t, ts, []string{"openid"})
 
-	// "Bearer " with nothing after the space — tests the token=="" branch
-	w := doRequest(t, mw, "Bearer ")
+	// The Bearer scheme with no token is a malformed bearer request, not an
+	// absent one: OAuth 2.1 §5.3.2 invalid_request, 400.
+	for _, header := range []string{"Bearer ", "Bearer", "bearer \t "} {
+		w := doRequest(t, mw, header)
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", w.Code)
-	}
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("%q: expected 400, got %d", header, w.Code)
+		}
+		if got := w.Header().Get("WWW-Authenticate"); !strings.Contains(got, `error="invalid_request"`) {
+			t.Errorf("%q: WWW-Authenticate = %q, want error=\"invalid_request\"", header, got)
+		}
 
-	var body map[string]string
-	_ = json.Unmarshal(w.Body.Bytes(), &body)
-	if body["error"] != "unauthorized" {
-		t.Errorf("error = %q, want unauthorized", body["error"])
+		var body map[string]string
+		_ = json.Unmarshal(w.Body.Bytes(), &body)
+		if body["error"] != "invalid_request" {
+			t.Errorf("%q: error = %q, want invalid_request", header, body["error"])
+		}
 	}
 }
 
@@ -1131,16 +1140,27 @@ func TestMultipleAuthorizationHeaders(t *testing.T) {
 	next := &nextHandler{}
 	handler := mw.Handler(next)
 
+	// Two VALID tokens: the old test used garbage, so it passed because the
+	// first value failed signature checks, not because duplicates were
+	// refused. Header.Get-first semantics would have accepted this request.
+	claims := validClaims()
+	token := signToken(t, ts.privKey, claims, map[string]any{"typ": "at+jwt"})
+
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", http.NoBody)
-	// Add multiple Authorization headers
-	req.Header.Add("Authorization", "Bearer token1")
-	req.Header.Add("Authorization", "Bearer token2")
+	req.Header.Add("Authorization", "Bearer "+token)
+	req.Header.Add("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	// Should reject — first header value is "token1" which is invalid
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 for multiple auth headers, got %d", w.Code)
+	// OAuth 2.1 §5.3.2: repeating a parameter is invalid_request.
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for multiple auth headers, got %d", w.Code)
+	}
+	if next.called {
+		t.Error("next handler called despite duplicated Authorization headers")
+	}
+	if got := w.Header().Get("WWW-Authenticate"); !strings.Contains(got, `error="invalid_request"`) {
+		t.Errorf("WWW-Authenticate = %q, want error=\"invalid_request\"", got)
 	}
 }
 
@@ -1369,6 +1389,14 @@ func TestChallengeShape(t *testing.T) {
 			// Names what is missing, so the client can step up.
 			wantScope: `scope="openid admin"`,
 		},
+		{
+			name:       "malformed bearer",
+			authHeader: "Bearer",
+			wantStatus: http.StatusBadRequest,
+			// OAuth 2.1 §5.3.2 invalid_request. No scope: the request's
+			// shape is wrong, not its grant.
+			wantParams: []string{`realm="`, `error="invalid_request"`, `resource_metadata="`},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1391,6 +1419,9 @@ func TestChallengeShape(t *testing.T) {
 			}
 			if tt.wantScope != "" && !strings.Contains(challenge, tt.wantScope) {
 				t.Errorf("challenge missing %s\n  got: %s", tt.wantScope, challenge)
+			}
+			if got := w.Header().Get("Cache-Control"); got != "no-store" {
+				t.Errorf("Cache-Control = %q, want no-store", got)
 			}
 
 			// resource_metadata must be the RFC 9728 well-known URL derived

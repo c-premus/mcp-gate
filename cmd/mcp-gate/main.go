@@ -98,6 +98,7 @@ type runConfig struct {
 	expectedAudience    string
 	requiredScopes      []string
 	scopesSupported     []string
+	strictTokenTyp      bool
 	resourceName        string
 	resourceDocs        string
 	realm               string
@@ -248,6 +249,8 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *
 		)
 	}
 
+	warnIdentityForm(cfg)
+
 	// MCP 2026-07-28 §"Refresh Tokens": protected resources SHOULD NOT advertise
 	// offline_access, in either scopes_supported or a WWW-Authenticate scope
 	// challenge, because a refresh token is a client concern and never a
@@ -365,6 +368,7 @@ func run(ctx context.Context, cfg *runConfig, ready chan<- *runResult) (result *
 		ResourceURI:      cfg.resourceURI,
 		Realm:            cfg.realm,
 		ScopesSupported:  strings.Join(cfg.scopesSupported, " "),
+		StrictTyp:        cfg.strictTokenTyp,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("auth middleware init: %w", err)
@@ -662,14 +666,10 @@ func loadConfig() (runConfig, error) {
 		return runConfig{}, err
 	}
 
-	// Validate AUTHORIZATION_SERVER
-	if _, err := url.ParseRequestURI(authServer); err != nil {
-		return runConfig{}, fmt.Errorf("AUTHORIZATION_SERVER is not a valid URL: %w", err)
+	policy, err := loadAuthPolicy(authServer)
+	if err != nil {
+		return runConfig{}, err
 	}
-
-	// Optional config with defaults
-	requiredScopes := splitCSV(getenvDefault("REQUIRED_SCOPES", "openid"))
-	scopesSupported := splitCSV(getenvDefault("SCOPES_SUPPORTED", "openid,profile"))
 
 	jwksRefreshInterval, err := getenvDuration("JWKS_REFRESH_INTERVAL", "1h")
 	if err != nil {
@@ -758,8 +758,9 @@ func loadConfig() (runConfig, error) {
 		jwksURI:             jwksURI,
 		expectedIssuer:      expectedIssuer,
 		expectedAudience:    expectedAudience,
-		requiredScopes:      requiredScopes,
-		scopesSupported:     scopesSupported,
+		requiredScopes:      policy.requiredScopes,
+		scopesSupported:     policy.scopesSupported,
+		strictTokenTyp:      policy.strictTokenTyp,
 		resourceName:        identity.name,
 		resourceDocs:        identity.docs,
 		realm:               identity.realm,
@@ -821,6 +822,15 @@ func getenvInt(key, fallback string) (int, error) {
 		return 0, fmt.Errorf("%s is not a valid integer: %w", key, err)
 	}
 	return n, nil
+}
+
+func getenvBool(key, fallback string) (bool, error) {
+	raw := getenvDefault(key, fallback)
+	b, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("%s is not a valid boolean: %w", key, err)
+	}
+	return b, nil
 }
 
 func getenvInt64(key, fallback string) (int64, error) {
@@ -892,6 +902,117 @@ type resourceIdentity struct {
 	realm string // AUTH_REALM — protection space in the WWW-Authenticate challenge
 }
 
+// authPolicy groups the settings that decide which tokens are acceptable and
+// what the protected-resource metadata advertises about obtaining them.
+// Extracted so loadConfig stays under the gocyclo threshold.
+type authPolicy struct {
+	requiredScopes  []string
+	scopesSupported []string
+	strictTokenTyp  bool
+}
+
+// loadAuthPolicy validates AUTHORIZATION_SERVER and reads REQUIRED_SCOPES,
+// SCOPES_SUPPORTED and STRICT_TOKEN_TYP.
+//
+// REQUIRED_SCOPES may not resolve to nothing. mcp-gate accepts `typ: JWT`
+// tokens by default (Authentik and golang-jwt emit it), and an OIDC ID token
+// from the same provider carries the same iss, the client_id as aud, an exp
+// and a sub — every check the parser makes. What an ID token lacks is a
+// `scope` claim, so a required scope is the thing that keeps ID tokens out
+// (RFC 8725 §3.11). `REQUIRED_SCOPES=","` used to switch that off silently.
+func loadAuthPolicy(authServer string) (authPolicy, error) {
+	// MCP Authorization §Communication Security: "All authorization server
+	// endpoints MUST be served over HTTPS." The issuer is what clients build
+	// the AS metadata URL from, so an http:// value here is an http:// AS.
+	if _, err := parsePublicURL("AUTHORIZATION_SERVER", authServer); err != nil {
+		return authPolicy{}, err
+	}
+
+	requiredScopes := splitCSV(getenvDefault("REQUIRED_SCOPES", "openid"))
+	if len(requiredScopes) == 0 {
+		return authPolicy{}, errors.New("REQUIRED_SCOPES must name at least one scope: " +
+			"a required scope is what stops an OIDC ID token from the same issuer " +
+			"being accepted as an access token (unset defaults to openid)")
+	}
+
+	strictTyp, err := getenvBool("STRICT_TOKEN_TYP", "false")
+	if err != nil {
+		return authPolicy{}, err
+	}
+
+	return authPolicy{
+		requiredScopes:  requiredScopes,
+		scopesSupported: splitCSV(getenvDefault("SCOPES_SUPPORTED", "openid,profile")),
+		strictTokenTyp:  strictTyp,
+	}, nil
+}
+
+// parsePublicURL parses a URL that clients are told to use — the resource
+// identifier or the authorization server issuer — and requires it to be an
+// absolute https URL. Loopback hosts may use http so local and test
+// deployments keep working; nothing else is exempt, because OAuth 2.1 §1.5
+// requires TLS for every endpoint carrying tokens or credentials.
+func parsePublicURL(envVar, raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%s is not a valid URL: %w", envVar, err)
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return nil, fmt.Errorf("%s is not a valid URL: must be absolute (scheme://host), got %q", envVar, raw)
+	}
+	loopbackHTTP := u.Scheme == "http" && isLoopbackHost(u.Hostname())
+	if u.Scheme != "https" && !loopbackHTTP {
+		return nil, fmt.Errorf("%s must use https:// (http:// is allowed only for loopback hosts), got %q", envVar, raw)
+	}
+	return u, nil
+}
+
+// isLoopbackHost reports whether host names this machine: `localhost` or a
+// loopback IP literal.
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	addr, err := netip.ParseAddr(host)
+	return err == nil && addr.IsLoopback()
+}
+
+// warnIdentityForm logs startup warnings for identity settings that are legal
+// but likely to break discovery or token validation in ways /healthz cannot
+// see. Advisory only: each is a SHOULD, or depends on the AS's own layout.
+func warnIdentityForm(cfg *runConfig) {
+	// RFC 9728 §2: authorization_servers holds issuer identifiers, and a
+	// client validates the issuer it discovers against the tokens it gets.
+	// Advertising one AS while validating tokens from another lets discovery
+	// succeed and then fails every token as wrong_issuer.
+	if cfg.authServer != cfg.expectedIssuer {
+		slog.Warn("authorization server differs from expected issuer",
+			"authorization_server", cfg.authServer,
+			"expected_issuer", cfg.expectedIssuer,
+			"reference", "RFC 9728 §2 authorization_servers / RFC 8414 §2 issuer",
+			"guidance", "AUTHORIZATION_SERVER is normally the issuer identifier, identical to EXPECTED_ISSUER",
+		)
+	}
+
+	// MCP Authorization §Canonical Server URI: the canonical form has a
+	// lowercase scheme and host, and "implementations SHOULD consistently
+	// use the form without the trailing slash".
+	if u, err := url.Parse(cfg.resourceURI); err == nil {
+		if u.Path != "" && u.Path != "/" && strings.HasSuffix(u.Path, "/") {
+			slog.Warn("RESOURCE_URI has a trailing slash",
+				"resource_uri", cfg.resourceURI,
+				"reference", "MCP Authorization §Canonical Server URI",
+			)
+		}
+		if u.Host != strings.ToLower(u.Host) || !strings.HasPrefix(cfg.resourceURI, u.Scheme+"://") {
+			slog.Warn("RESOURCE_URI scheme or host is not lowercase",
+				"resource_uri", cfg.resourceURI,
+				"reference", "MCP Authorization §Canonical Server URI",
+			)
+		}
+	}
+}
+
 // loadResourceIdentity validates RESOURCE_URI and reads RESOURCE_NAME,
 // RESOURCE_DOCUMENTATION and AUTH_REALM. It owns the RESOURCE_URI parse because
 // the realm is derived from it and nothing else needs the parsed form.
@@ -902,9 +1023,18 @@ type resourceIdentity struct {
 // auth.NewMiddleware does not validate Realm, so an empty derivation would
 // silently emit realm="" on every challenge — refuse instead.
 func loadResourceIdentity(resourceURI string) (resourceIdentity, error) {
-	resourceURL, err := url.ParseRequestURI(resourceURI)
+	resourceURL, err := parsePublicURL("RESOURCE_URI", resourceURI)
 	if err != nil {
-		return resourceIdentity{}, fmt.Errorf("RESOURCE_URI is not a valid URL: %w", err)
+		return resourceIdentity{}, err
+	}
+	// RFC 9728 §2: the resource identifier "has no fragment component" and
+	// SHOULD NOT carry a query. Both would also change the string a client
+	// compares against, and URLFor would splice the well-known path into it.
+	if resourceURL.Fragment != "" || strings.Contains(resourceURI, "#") {
+		return resourceIdentity{}, fmt.Errorf("RESOURCE_URI must not contain a fragment (RFC 9728 §2), got %q", resourceURI)
+	}
+	if resourceURL.RawQuery != "" || resourceURL.ForceQuery {
+		return resourceIdentity{}, fmt.Errorf("RESOURCE_URI must not contain a query (RFC 9728 §2), got %q", resourceURI)
 	}
 	realm := getenvDefault("AUTH_REALM", resourceURL.Hostname())
 	if realm == "" {

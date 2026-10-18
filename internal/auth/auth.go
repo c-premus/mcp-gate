@@ -63,6 +63,13 @@ func (s Scopes) MarshalJSON() ([]byte, error) {
 type Claims struct {
 	jwt.RegisteredClaims
 	Scope Scopes `json:"scope,omitempty"`
+
+	// Cnf is the RFC 7800 confirmation claim. Its presence means the AS bound
+	// the token to a key the client must prove possession of (DPoP, RFC 9449;
+	// mTLS, RFC 8705). mcp-gate verifies neither proof, so accepting such a
+	// token as a plain bearer token would discard the binding the AS asked
+	// for — RFC 9700 §4.10. Decoded raw because only presence matters.
+	Cnf json.RawMessage `json:"cnf,omitempty"`
 }
 
 // Config holds JWT validation configuration.
@@ -76,6 +83,13 @@ type Config struct {
 	ResourceURI     string // Public URL for WWW-Authenticate resource_metadata
 	Realm           string // Protection space name; operator-supplied, sanitized at emit
 	ScopesSupported string // Space-separated scopes for WWW-Authenticate
+
+	// StrictTyp accepts only the RFC 9068 access-token types (`at+jwt`,
+	// `application/at+jwt`), as RFC 9068 §4 requires. Off by default because
+	// common IdPs (Authentik included) sign access tokens with `typ: JWT`.
+	// Turning it on is the strongest guard against an OIDC ID token from the
+	// same issuer being replayed as an access token (RFC 8725 §3.11).
+	StrictTyp bool
 }
 
 // Middleware validates JWT Bearer tokens against a JWKS endpoint.
@@ -279,9 +293,16 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		span := trace.SpanFromContext(r.Context())
 		clientIP := realip.FromContext(r)
 
-		// Extract Bearer token
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
+		// OAuth 2.1 §5.3.2: a request that "repeats the same parameter" or
+		// "is otherwise malformed" is invalid_request (400). Header.Get would
+		// silently validate only the first of several Authorization headers,
+		// leaving which credential authorised the request up to field order.
+		authHeaders := r.Header.Values("Authorization")
+		if len(authHeaders) > 1 {
+			m.rejectInvalidRequest(w, span, clientIP, "multiple_authorization_headers")
+			return
+		}
+		if len(authHeaders) == 0 || authHeaders[0] == "" {
 			metrics.AuthValidationsTotal.WithLabelValues("no_token").Inc()
 			span.SetAttributes(attribute.String("auth.outcome", "no_token"))
 			m.writeNoTokenError(w)
@@ -294,11 +315,19 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		// told a client sending `bearer <valid token>` that it had supplied no
 		// credentials at all (no_token, a 401 carrying no error parameter),
 		// which is both wrong and actively misleading to debug.
-		token, found := cutBearerPrefix(authHeader)
-		if !found || token == "" {
+		//
+		// A different scheme (Basic, DPoP) is "no bearer credentials" and gets
+		// the bare challenge. The Bearer scheme with nothing after it is a
+		// malformed bearer request, not an absent one — 400, not 401.
+		token, found := cutBearerPrefix(authHeaders[0])
+		if !found {
 			metrics.AuthValidationsTotal.WithLabelValues("no_token").Inc()
 			span.SetAttributes(attribute.String("auth.outcome", "no_token"))
 			m.writeNoTokenError(w)
+			return
+		}
+		if token == "" {
+			m.rejectInvalidRequest(w, span, clientIP, "empty_bearer_token")
 			return
 		}
 
@@ -326,31 +355,20 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 			return
 		}
 
-		// Check typ header (advisory per RFC 9068 §2.1).
-		// - "at+jwt": preferred for access tokens, accept
-		// - "JWT" or absent: standard default, accept with debug log
-		// - anything else: reject (likely not an access token)
-		if typ, ok := parsed.Header["typ"].(string); ok {
-			typLower := strings.ToLower(typ)
-			switch typLower {
-			case "at+jwt":
-				// Preferred — no action needed
-			case "jwt", "":
-				slog.Debug("JWT uses default typ header, not at+jwt", "sub", claims.Subject, "typ", typ)
-			default:
-				slog.Warn("token rejected",
-					"reason", "wrong_typ",
-					"typ", typ,
-					"client_ip", clientIP,
-					"jti", claims.ID,
-				)
-				metrics.AuthValidationsTotal.WithLabelValues("wrong_typ").Inc()
-				span.SetAttributes(attribute.String("auth.outcome", "wrong_typ"))
-				m.writeInvalidTokenError(w)
-				return
-			}
-		} else {
-			slog.Debug("JWT missing typ header", "sub", claims.Subject)
+		// Header and binding checks the parser does not perform: crit, typ,
+		// cnf. Each rejection is invalid_token with its own outcome label.
+		if outcome := m.tokenShapeOutcome(parsed, claims); outcome != "" {
+			typ, _ := parsed.Header["typ"].(string)
+			slog.Warn("token rejected",
+				"reason", outcome,
+				"typ", typ,
+				"client_ip", clientIP,
+				"jti", claims.ID,
+			)
+			metrics.AuthValidationsTotal.WithLabelValues(outcome).Inc()
+			span.SetAttributes(attribute.String("auth.outcome", outcome))
+			m.writeInvalidTokenError(w)
+			return
 		}
 
 		// Scope validation — 403, not 401
@@ -408,6 +426,64 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 	})
 }
 
+// rejectInvalidRequest records and writes the 400 invalid_request response.
+// The reason goes to the log only; the metric and span carry the single
+// fixed outcome so the label set stays bounded.
+func (m *Middleware) rejectInvalidRequest(w http.ResponseWriter, span trace.Span, clientIP, reason string) {
+	slog.Warn("request rejected",
+		"reason", reason,
+		"client_ip", clientIP,
+	)
+	metrics.AuthValidationsTotal.WithLabelValues("invalid_request").Inc()
+	span.SetAttributes(attribute.String("auth.outcome", "invalid_request"))
+	m.writeInvalidRequestError(w)
+}
+
+// tokenShapeOutcome applies the checks that a signature-valid, claims-valid
+// token must still pass, returning the rejection outcome or "" to accept.
+//
+//   - crit: RFC 7515 §4.1.11 — a recipient MUST reject a JWS whose `crit`
+//     header names an extension it does not understand. mcp-gate understands
+//     none, and golang-jwt never reads `crit`, so any `crit` is rejected.
+//   - typ: RFC 9068 §4 accepts `at+jwt` and `application/at+jwt` (RFC 7515
+//     §4.1.9: compared case-insensitively, `application/` prefix optional).
+//     `JWT` and an absent `typ` are accepted unless StrictTyp — a deliberate
+//     interoperability default, since golang-jwt and Authentik emit `JWT`.
+//     Anything else (e.g. `secevent+jwt`) is not an access token.
+//   - cnf: a sender-constrained token presented as bearer; see Claims.Cnf.
+func (m *Middleware) tokenShapeOutcome(parsed *jwt.Token, claims *Claims) string {
+	if _, ok := parsed.Header["crit"]; ok {
+		return "unsupported_crit"
+	}
+	if !m.typAcceptable(parsed.Header["typ"]) {
+		return "wrong_typ"
+	}
+	if len(claims.Cnf) > 0 && string(claims.Cnf) != "null" {
+		return "sender_constrained"
+	}
+	return ""
+}
+
+// typAcceptable reports whether a JOSE `typ` header value is an access-token
+// type under the configured strictness. A non-string `typ` is malformed.
+func (m *Middleware) typAcceptable(v any) bool {
+	if v == nil {
+		return !m.cfg.StrictTyp
+	}
+	typ, ok := v.(string)
+	if !ok {
+		return false
+	}
+	switch strings.ToLower(typ) {
+	case "at+jwt", "application/at+jwt":
+		return true
+	case "jwt", "":
+		return !m.cfg.StrictTyp
+	default:
+		return false
+	}
+}
+
 // classifyJWTError maps a jwt/v5 parse/validation error to a fixed-cardinality
 // category string safe to log at Warn. The jwt/v5 library's err.Error() can
 // echo token bytes in some failure modes (malformed base64, JSON unmarshal);
@@ -456,16 +532,20 @@ const bearerScheme = "Bearer"
 // header value, tolerating the additional SP that RFC 9110 §11.6.2 permits
 // between scheme and credentials. It returns ok=false if the scheme does not
 // match, so the caller can distinguish "no bearer credentials" from "bad
-// bearer credentials" — the two produce different challenges.
+// bearer credentials" — the two produce different challenges. The bare
+// scheme ("Bearer", "Bearer   ") matches with an empty token.
 func cutBearerPrefix(header string) (token string, ok bool) {
 	if len(header) < len(bearerScheme) ||
 		!strings.EqualFold(header[:len(bearerScheme)], bearerScheme) {
 		return "", false
 	}
 	rest := header[len(bearerScheme):]
+	if rest == "" {
+		return "", true
+	}
 	// A scheme match must be followed by whitespace, or "Bearerfoo" would
 	// parse as the Bearer scheme carrying the token "foo".
-	if rest == "" || (rest[0] != ' ' && rest[0] != '\t') {
+	if rest[0] != ' ' && rest[0] != '\t' {
 		return "", false
 	}
 	return strings.TrimLeft(rest, " \t"), true
@@ -531,8 +611,20 @@ func sanitizeQuotedString(s string) string {
 	return b.String()
 }
 
-// writeNoTokenError writes a 401 response for missing/malformed Bearer token.
-// Per RFC 6750 §3.1, no error code when the request lacks authentication.
+// setNoStore marks an auth error response uncacheable. 4xx responses are not
+// heuristically cacheable (RFC 9111 §4.2.2), but a shared cache between the
+// client and mcp-gate may still be configured to store them, and a cached
+// challenge outlives the condition that produced it.
+func setNoStore(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
+}
+
+// writeNoTokenError writes a 401 response for a request carrying no Bearer
+// credentials. RFC 6750 §3.1 and OAuth 2.1 §5.3.2: when the request lacks
+// authentication information the resource server "SHOULD NOT include an error
+// code or other error information" — so the challenge carries no `error`
+// parameter and the response has no body. (It used to send a JSON body with
+// the unregistered code "unauthorized".)
 func (m *Middleware) writeNoTokenError(w http.ResponseWriter) {
 	w.Header().Set("WWW-Authenticate", fmt.Sprintf(
 		`Bearer realm="%s", scope="%s", resource_metadata="%s"`,
@@ -540,11 +632,26 @@ func (m *Middleware) writeNoTokenError(w http.ResponseWriter) {
 		sanitizeQuotedString(m.cfg.ScopesSupported),
 		sanitizeQuotedString(m.metadataURL),
 	))
-	w.Header().Set("Content-Type", "application/json")
+	setNoStore(w)
 	w.WriteHeader(http.StatusUnauthorized)
+}
+
+// writeInvalidRequestError writes a 400 response for a malformed Bearer
+// request (RFC 6750 §3.1, OAuth 2.1 §5.3.2 invalid_request): several
+// Authorization headers, or the Bearer scheme with no token. No `scope`: the
+// client's fault is the request's shape, not its grant.
+func (m *Middleware) writeInvalidRequestError(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", fmt.Sprintf(
+		`Bearer realm="%s", error="invalid_request", error_description="Malformed Authorization header", resource_metadata="%s"`,
+		sanitizeQuotedString(m.cfg.Realm),
+		sanitizeQuotedString(m.metadataURL),
+	))
+	setNoStore(w)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadRequest)
 	_ = json.NewEncoder(w).Encode(map[string]string{
-		"error":             "unauthorized",
-		"error_description": "Bearer token required",
+		"error":             "invalid_request",
+		"error_description": "Malformed Authorization header",
 	})
 }
 
@@ -566,6 +673,7 @@ func (m *Middleware) writeInvalidTokenError(w http.ResponseWriter) {
 		sanitizeQuotedString(m.cfg.ScopesSupported),
 		sanitizeQuotedString(m.metadataURL),
 	))
+	setNoStore(w)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
 	_ = json.NewEncoder(w).Encode(map[string]string{
@@ -582,6 +690,7 @@ func (m *Middleware) writeInsufficientScopeError(w http.ResponseWriter) {
 		sanitizeQuotedString(strings.Join(m.cfg.RequiredScopes, " ")),
 		sanitizeQuotedString(m.metadataURL),
 	))
+	setNoStore(w)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusForbidden)
 	_ = json.NewEncoder(w).Encode(map[string]string{

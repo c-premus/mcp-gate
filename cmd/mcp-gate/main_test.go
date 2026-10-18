@@ -430,12 +430,14 @@ func TestRun_UnauthenticatedRequest401(t *testing.T) {
 		t.Errorf("WWW-Authenticate = %q, want to contain %s", wwwAuth, wantRealm)
 	}
 
-	var body map[string]string
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatalf("decode body: %v", err)
+	// RFC 6750 §3.1: no error information when the request carries no
+	// credentials, so the challenge header is the whole response.
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
 	}
-	if body["error"] != "unauthorized" {
-		t.Errorf("error = %q, want unauthorized", body["error"])
+	if len(body) != 0 {
+		t.Errorf("body = %q, want empty", body)
 	}
 }
 
@@ -717,9 +719,19 @@ func TestLoadConfig_Errors(t *testing.T) {
 		{"UPSTREAM_URL_invalid", func(t *testing.T) { t.Setenv("UPSTREAM_URL", "://bad") }, "UPSTREAM_URL is not a valid URL"},
 		{"RESOURCE_URI_invalid", func(t *testing.T) { t.Setenv("RESOURCE_URI", "://bad") }, "RESOURCE_URI is not a valid URL"},
 		{"AUTHORIZATION_SERVER_invalid", func(t *testing.T) { t.Setenv("AUTHORIZATION_SERVER", "://bad") }, "AUTHORIZATION_SERVER is not a valid URL"},
-		// A host-less RESOURCE_URI parses, but leaves no hostname to derive a realm
-		// from — refuse rather than emit realm="" on every challenge.
-		{"RESOURCE_URI_no_host_for_realm", func(t *testing.T) { t.Setenv("RESOURCE_URI", "/mcp") }, "no host to derive a realm from"},
+		// A host-less RESOURCE_URI is not an absolute URL, and would also leave
+		// no hostname to derive a realm from.
+		{"RESOURCE_URI_no_host", func(t *testing.T) { t.Setenv("RESOURCE_URI", "/mcp") }, "must be absolute"},
+		// RFC 9728 §2 resource identifier shape, and HTTPS for anything a client
+		// is told to use (loopback exempt — see TestLoadConfig_LoopbackHTTP).
+		{"RESOURCE_URI_http", func(t *testing.T) { t.Setenv("RESOURCE_URI", "http://grafana-mcp.example.com") }, "RESOURCE_URI must use https://"},
+		{"RESOURCE_URI_fragment", func(t *testing.T) { t.Setenv("RESOURCE_URI", "https://grafana-mcp.example.com#frag") }, "fragment"},
+		{"RESOURCE_URI_empty_fragment", func(t *testing.T) { t.Setenv("RESOURCE_URI", "https://grafana-mcp.example.com#") }, "fragment"},
+		{"RESOURCE_URI_query", func(t *testing.T) { t.Setenv("RESOURCE_URI", "https://grafana-mcp.example.com?a=b") }, "query"},
+		{"AUTHORIZATION_SERVER_http", func(t *testing.T) { t.Setenv("AUTHORIZATION_SERVER", "http://auth.example.com/app/") }, "AUTHORIZATION_SERVER must use https://"},
+		// An empty scope requirement is what let ID tokens through.
+		{"REQUIRED_SCOPES_empty", func(t *testing.T) { t.Setenv("REQUIRED_SCOPES", ",") }, "REQUIRED_SCOPES must name at least one scope"},
+		{"bad_STRICT_TOKEN_TYP", func(t *testing.T) { t.Setenv("STRICT_TOKEN_TYP", "maybe") }, "STRICT_TOKEN_TYP"},
 		// Bad optional values
 		{"bad_JWKS_REFRESH_INTERVAL", func(t *testing.T) { t.Setenv("JWKS_REFRESH_INTERVAL", "not-a-duration") }, "JWKS_REFRESH_INTERVAL"},
 		{"bad_SHUTDOWN_TIMEOUT", func(t *testing.T) { t.Setenv("SHUTDOWN_TIMEOUT", "not-a-duration") }, "SHUTDOWN_TIMEOUT"},
@@ -751,6 +763,42 @@ func TestLoadConfig_Errors(t *testing.T) {
 				t.Errorf("error = %q, want to contain %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+// TestLoadConfig_LoopbackHTTP pins the one exemption from the HTTPS rule:
+// loopback hosts, so local and test deployments keep working.
+func TestLoadConfig_LoopbackHTTP(t *testing.T) {
+	for _, host := range []string{"localhost:8080", "127.0.0.1:8080", "[::1]:8080"} {
+		t.Run(host, func(t *testing.T) {
+			setRequiredEnv(t)
+			t.Setenv("RESOURCE_URI", "http://"+host)
+			t.Setenv("AUTHORIZATION_SERVER", "http://"+host+"/app/")
+
+			if _, err := loadConfig(); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_StrictTokenTyp(t *testing.T) {
+	setRequiredEnv(t)
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.strictTokenTyp {
+		t.Error("strictTokenTyp should default to false")
+	}
+
+	t.Setenv("STRICT_TOKEN_TYP", "true")
+	cfg, err = loadConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.strictTokenTyp {
+		t.Error("strictTokenTyp = false, want true")
 	}
 }
 

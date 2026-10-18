@@ -92,11 +92,12 @@ func TestCutBearerPrefix(t *testing.T) {
 		// A scheme match must end at whitespace, or "Bearerfoo" would parse as
 		// the Bearer scheme carrying "foo".
 		{"Bearerfoo", "", false},
-		{"Bearer", "", false},
 
 		// Scheme present, credentials absent — matches the scheme but yields an
-		// empty token, which the caller rejects as no_token.
+		// empty token, which the caller rejects as invalid_request (400).
+		{"Bearer", "", true},
 		{"Bearer ", "", true},
+		{"Bearer \t ", "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.header, func(t *testing.T) {
