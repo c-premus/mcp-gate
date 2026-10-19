@@ -8,11 +8,21 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.21.4] - 2026-10-19
+
+### Fixes
+
+- fix(deploy): use the runner's pinned cosign, never download it
+
 ## [0.21.3] - 2026-10-18
 
 ### Fixes
 
 - fix(metadata): answer non-GET methods with 405, not a 307 to a 404
+
+### Maintenance
+
+- chore(changelog): update for v0.21.3
 
 ## [0.21.2] - 2026-10-18
 
@@ -1300,6 +1310,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.21.4]: https://github.com/c-premus/mcp-gate/compare/v0.21.3...v0.21.4
 [0.21.3]: https://github.com/c-premus/mcp-gate/compare/v0.21.2...v0.21.3
 [0.21.2]: https://github.com/c-premus/mcp-gate/compare/v0.21.1...v0.21.2
 [0.21.1]: https://github.com/c-premus/mcp-gate/compare/v0.21.0...v0.21.1
