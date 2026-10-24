@@ -38,7 +38,7 @@ issue first.
   `toolchain` line; with the default `GOTOOLCHAIN=auto`, Go downloads that
   toolchain on first use. Code must still compile at the 1.27 floor.
 - [golangci-lint](https://golangci-lint.run/) at the version pinned in
-  `.github/workflows/ci.yaml` (v2.14.0 at the time of writing)
+  `.github/workflows/ci.yaml`
 - Node.js 24, only if you change the Grafana dashboard
 - Git with conventional commit knowledge
 

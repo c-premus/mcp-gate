@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <!-- GitHub social preview card. Rasterize to social-preview.png (1280x640)
+       and upload in the repository's Settings -> Social preview. -->
+  <rect width="1280" height="640" fill="#1e293b"/>
+
+  <!-- Logo glyph: the shapes of docs/assets/mcp-gate-icon.svg, scaled 5.5x -->
+  <g transform="translate(96 147) scale(5.5)">
+    <rect x="16" y="14" width="32" height="43" fill="#f8fafc" stroke="#94a3b8" stroke-width="1"/>
+    <line x1="32" y1="14" x2="32" y2="57" stroke="#94a3b8" stroke-width="1"/>
+    <rect x="9" y="14" width="7" height="43" rx="1" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1"/>
+    <rect x="48" y="14" width="7" height="43" rx="1" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1"/>
+    <rect x="4" y="6" width="56" height="8" rx="2" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1"/>
+    <line x1="4" y1="57" x2="60" y2="57" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round"/>
+    <path d="M27.5 37 L36.5 37 L35 51 L29 51 Z" fill="#3b82f6"/>
+    <circle cx="32" cy="32" r="9" fill="#3b82f6"/>
+    <circle cx="32" cy="32" r="3.5" fill="#ffffff"/>
+  </g>
+
+  <g font-family="Inter, 'DejaVu Sans', sans-serif">
+    <text x="530" y="300" font-size="120" font-weight="700" fill="#f8fafc">mcp-gate</text>
+    <text x="534" y="370" font-size="38" fill="#cbd5e1">OAuth 2.1 in front of any MCP server,</text>
+    <text x="534" y="420" font-size="38" fill="#cbd5e1">without touching it.</text>
+    <text x="534" y="500" font-size="26" fill="#3b82f6" letter-spacing="1">RFC 9728 · JWT validation · HTTP proxy · Go</text>
+  </g>
+</svg>

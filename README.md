@@ -1,10 +1,31 @@
-<img src="https://raw.githubusercontent.com/c-premus/mcp-gate/main/docs/assets/mcp-gate-icon.svg" alt="mcp-gate logo: a gate with a keyhole" width="96" align="right">
+<p align="center">
+  <img src="https://raw.githubusercontent.com/c-premus/mcp-gate/main/docs/assets/logo.png" alt="mcp-gate logo" width="128" height="128">
+</p>
 
-# mcp-gate
+<h1 align="center">mcp-gate</h1>
 
-[![CI](https://github.com/c-premus/mcp-gate/actions/workflows/ci.yaml/badge.svg)](https://github.com/c-premus/mcp-gate/actions/workflows/ci.yaml)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/c-premus/mcp-gate)](https://go.dev/)
-[![License](https://img.shields.io/github/license/c-premus/mcp-gate)](LICENSE)
+<p align="center">
+  <strong>OAuth 2.1 in front of any MCP server, without touching it.</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/c-premus/mcp-gate/actions/workflows/ci.yaml"><img src="https://github.com/c-premus/mcp-gate/actions/workflows/ci.yaml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/c-premus/mcp-gate/tags"><img src="https://img.shields.io/github/v/tag/c-premus/mcp-gate?label=release&sort=semver" alt="Release"></a>
+  <a href="https://github.com/c-premus/mcp-gate/blob/main/go.mod"><img src="https://img.shields.io/badge/go-1.27-00ADD8?logo=go&logoColor=white" alt="Go 1.27"></a>
+  <a href="https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization"><img src="https://img.shields.io/badge/MCP-2026--07--28-3b82f6" alt="MCP authorization 2026-07-28"></a>
+  <a href="https://github.com/c-premus/mcp-gate/blob/main/LICENSE"><img src="https://img.shields.io/github/license/c-premus/mcp-gate" alt="License"></a>
+  <br>
+  <a href="https://hub.docker.com/r/cpremus/mcp-gate"><img src="https://img.shields.io/docker/pulls/cpremus/mcp-gate?logo=docker&logoColor=white" alt="Docker pulls"></a>
+  <a href="https://hub.docker.com/r/cpremus/mcp-gate"><img src="https://img.shields.io/docker/image-size/cpremus/mcp-gate?sort=semver&label=image%20size" alt="Image size"></a>
+  <a href="https://github.com/c-premus/mcp-gate/pkgs/container/mcp-gate"><img src="https://img.shields.io/badge/ghcr.io-c--premus%2Fmcp--gate-24292f?logo=github" alt="GHCR image"></a>
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#connecting-a-client">Connecting a client</a> ·
+  <a href="#configuration">Configuration</a> ·
+  <a href="https://github.com/c-premus/mcp-gate/blob/main/docs/setup.md">Setup Guide</a>
+</p>
 
 OAuth 2.1 reverse proxy for MCP servers. Implements [RFC 9728 Protected Resource Metadata](https://datatracker.ietf.org/doc/html/rfc9728) and JWT validation, delegating authentication to an external authorization server.
 
@@ -68,6 +89,8 @@ go run ./cmd/mcp-gate
 ## Docker
 
 ```bash
+docker pull ghcr.io/c-premus/mcp-gate:0.21   # or: docker pull cpremus/mcp-gate:0.21
+
 docker run -d --name mcp-gate -p 8080:8080 -p 9090:9090 \
   --env-file mcp-gate.env \
   cpremus/mcp-gate:0.21
@@ -76,6 +99,22 @@ docker run -d --name mcp-gate -p 8080:8080 -p 9090:9090 \
 Images are published to [Docker Hub](https://hub.docker.com/r/cpremus/mcp-gate) and [GHCR](https://github.com/c-premus/mcp-gate/pkgs/container/mcp-gate) (`ghcr.io/c-premus/mcp-gate`) on each release, for `linux/amd64`. Tags are `X.Y.Z`, `X.Y`, and `latest`, with no `v` prefix (for example `0.21.8`). Pin a version rather than tracking `latest`.
 
 A Compose example is in [`docker-compose.example.yml`](docker-compose.example.yml).
+
+## Connecting a client
+
+Point the client at your public `RESOURCE_URI`. The client finds the authorization server through mcp-gate's 401 challenge and the RFC 9728 metadata, so mcp-gate itself needs no client-side configuration. The examples below assume an OAuth client you've registered yourself, which is what you need when dynamic client registration isn't enabled on your identity provider.
+
+**Claude.ai**: add a custom connector with the URL, the client ID and the client secret, and register `https://claude.ai/api/mcp/auth_callback` as the client's redirect URI. Step-by-step instructions are in the [Setup Guide](docs/setup.md#step-4-connect-claudeai).
+
+**Claude Code**: register `http://localhost:PORT/callback` as a redirect URI (pick any free port), then pass the same port when adding the server:
+
+```bash
+claude mcp add --transport http \
+  --client-id your-client-id --client-secret --callback-port 8080 \
+  mcp-gate https://mcp.example.com
+```
+
+`--client-secret` asks for the secret at the prompt; leave it out for a public client. Run `/mcp` in a session, or `claude mcp login mcp-gate`, to sign in. See the [Claude Code MCP docs](https://code.claude.com/docs/en/mcp) for the details.
 
 ## Setup
 
