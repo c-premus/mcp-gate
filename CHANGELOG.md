@@ -8,10 +8,21 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.21.9] - 2026-10-24
+
+### Fixes
+
+- fix(grafana): use a label_values string query for the Gate variable
+
+### Maintenance
+
+- chore(docker): add Dozzle app icon label to the image
+
 ## [0.21.8] - 2026-10-24
 
 ### Maintenance
 
+- chore(changelog): update for v0.21.8
 - chore(deps): update docker/login-action digest to 81c6f93 (#286)
 
 ## [0.21.7] - 2026-10-23
@@ -1341,6 +1352,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.21.9]: https://github.com/c-premus/mcp-gate/compare/v0.21.8...v0.21.9
 [0.21.8]: https://github.com/c-premus/mcp-gate/compare/v0.21.7...v0.21.8
 [0.21.7]: https://github.com/c-premus/mcp-gate/compare/v0.21.6...v0.21.7
 [0.21.6]: https://github.com/c-premus/mcp-gate/compare/v0.21.5...v0.21.6
