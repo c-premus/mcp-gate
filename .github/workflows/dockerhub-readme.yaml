@@ -21,4 +21,8 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: cpremus/mcp-gate
-          short-description: "OAuth 2.1 reverse proxy for MCP servers"
+          short-description: "OAuth 2.1 reverse proxy for MCP servers: RFC 9728 metadata, JWT validation"
+          # Rewrites relative markdown links (LICENSE, the setup guide, the
+          # Compose example) to absolute GitHub URLs. It does not touch HTML
+          # src/href, so the README header uses absolute URLs itself.
+          enable-url-completion: true
