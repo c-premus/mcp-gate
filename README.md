@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/c-premus/mcp-gate/main/docs/assets/mcp-gate-icon.svg" alt="mcp-gate logo: a gate with a keyhole" width="96" align="right">
+
 # mcp-gate
 
 [![CI](https://github.com/c-premus/mcp-gate/actions/workflows/ci.yaml/badge.svg)](https://github.com/c-premus/mcp-gate/actions/workflows/ci.yaml)
@@ -31,6 +33,16 @@ Prometheus metrics are served on a separate listener (`METRICS_ADDR`, default `:
 
 MCP headers (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, `Mcp-Param-*`) are forwarded verbatim. mcp-gate records them in metrics and logs but never acts on them.
 
+## Why not oauth2-proxy or FastMCP?
+
+Both came up when I was looking for something to put in front of an MCP server, and both are good at what they're built for.
+
+**oauth2-proxy** is built around browser sessions: an unauthenticated request is redirected to a login page, and a successful login becomes a session cookie. It can also accept bearer JWTs (`--skip-jwt-bearer-tokens`), but at the time of writing it doesn't serve RFC 9728 Protected Resource Metadata or send the `resource_metadata` challenge that MCP clients use to find the authorization server. Without that, Claude.ai has no way to start the OAuth flow. If you're protecting a web app that people log into in a browser, use oauth2-proxy.
+
+**FastMCP** does implement the resource-server side: `RemoteAuthProvider` with a `JWTVerifier` serves RFC 9728 metadata and validates JWTs against a JWKS, and `create_proxy` can front a remote MCP server. The difference is the layer. A FastMCP proxy is a Python MCP server that parses JSON-RPC and re-exposes the upstream's tools, and it's configured in code. If you're already writing your MCP server with FastMCP, use its auth and skip mcp-gate.
+
+mcp-gate works at the HTTP layer instead. It validates the token, strips it, and passes the request through untouched. It never parses request bodies, it doesn't care what language the upstream is written in, and it's configured entirely with environment variables. Use it when you want to put auth in front of an MCP server you didn't write, or don't want to change.
+
 ## Architecture
 
 ```
@@ -58,10 +70,10 @@ go run ./cmd/mcp-gate
 ```bash
 docker run -d --name mcp-gate -p 8080:8080 -p 9090:9090 \
   --env-file mcp-gate.env \
-  cpremus/mcp-gate:0.20
+  cpremus/mcp-gate:0.21
 ```
 
-Images are published to [Docker Hub](https://hub.docker.com/r/cpremus/mcp-gate) and [GHCR](https://github.com/c-premus/mcp-gate/pkgs/container/mcp-gate) (`ghcr.io/c-premus/mcp-gate`) on each release, for `linux/amd64`. Tags are `X.Y.Z`, `X.Y`, and `latest`, with no `v` prefix (for example `0.20.2`). Pin a version rather than tracking `latest`.
+Images are published to [Docker Hub](https://hub.docker.com/r/cpremus/mcp-gate) and [GHCR](https://github.com/c-premus/mcp-gate/pkgs/container/mcp-gate) (`ghcr.io/c-premus/mcp-gate`) on each release, for `linux/amd64`. Tags are `X.Y.Z`, `X.Y`, and `latest`, with no `v` prefix (for example `0.21.8`). Pin a version rather than tracking `latest`.
 
 A Compose example is in [`docker-compose.example.yml`](docker-compose.example.yml).
 
@@ -85,7 +97,7 @@ mcp-gate validates JWTs statelessly and is safe to run as multiple replicas behi
 
 Every request is logged as structured JSON (`method`, `path`, `status`, `duration_ms`, `client_ip`, `user_agent`). `mcp_method`, `mcp_name`, and `mcp_name_encoded` are added when the client sends the corresponding MCP headers.
 
-Metrics use the `mcpgate_` prefix. `mcpgate_info{version="…"}` reports the running build. Its `version` label keeps the release tag's `v` prefix (`v0.20.2`), which the image tag drops.
+Metrics use the `mcpgate_` prefix. `mcpgate_info{version="…"}` reports the running build. Its `version` label keeps the release tag's `v` prefix (`v0.21.8`), which the image tag drops.
 
 [`docs/grafana/`](docs/grafana/) contains a provisionable dashboard and alert rules. Both expect a Prometheus job named `mcp-gate` and a `service` target label on each gate. See [Monitoring](https://github.com/c-premus/mcp-gate/blob/main/docs/setup.md#monitoring) in the Setup Guide.
 
