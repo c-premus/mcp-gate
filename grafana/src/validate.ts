@@ -50,8 +50,15 @@ interface Panel {
   panels?: Panel[];
 }
 
+interface Variable {
+  name?: string;
+  type?: string;
+  query?: unknown;
+}
+
 interface Dashboard {
   panels?: Panel[];
+  templating?: { list?: Variable[] };
 }
 
 /** Every panel, flattened — nested panels of collapsed rows included. */
@@ -178,6 +185,27 @@ export function validateDashboard(dashboard: unknown): string[] {
           `${label(a)} and ${label(b)} occupy overlapping grid boxes`
         );
       }
+    }
+  }
+
+  // Query variables. Provisioned with the Prometheus query editor's structured
+  // form ({qryType, label, metric}), the Gate variable loaded no options on
+  // Grafana 13: "All" expanded to nothing, every `service=~"$service"` matched
+  // nothing, and the stats' noValue("0") made the empty dashboard read as an
+  // idle one. Require the classic label_values() string, which resolves.
+  for (const variable of (dashboard as Dashboard).templating?.list ?? []) {
+    if (variable.type !== "query") {
+      continue;
+    }
+    const query = variable.query;
+    const text =
+      typeof query === "string"
+        ? query
+        : (query as { query?: unknown } | null | undefined)?.query;
+    if (typeof text !== "string" || text === "") {
+      errors.push(
+        `variable "${variable.name ?? "?"}": query has no query string — use {query: "label_values(...)"}, not the editor's structured {qryType, label, metric} form, which loads no options when provisioned`
+      );
     }
   }
 

@@ -62,9 +62,7 @@
           "uid": "${DS_PROMETHEUS}"
         },
         "query": {
-          "qryType": 1,
-          "label": "service",
-          "metric": "mcpgate_info{job=\"mcp-gate\"}",
+          "query": "label_values(mcpgate_info{job=\"mcp-gate\"}, service)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,

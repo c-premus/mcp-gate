@@ -69,10 +69,12 @@ export function buildDashboard(): DashboardBuilder {
         .label("Gate")
         .description("mcp-gate instance(s) to display. 'All' pools nothing — panels stay split per gate.")
         .datasource(PROMETHEUS)
+        // The classic label_values() string, not the query editor's structured
+        // form ({qryType: 1, label, metric}). Provisioned with the structured
+        // form, Grafana 13 loaded no options at all, so "All" expanded to
+        // nothing and every panel read 0 — see validate.ts.
         .query({
-          qryType: 1, // label_values
-          label: SERVICE_VAR,
-          metric: SERVICE_VAR_METRIC,
+          query: `label_values(${SERVICE_VAR_METRIC}, ${SERVICE_VAR})`,
           refId: "PrometheusVariableQueryEditor-VariableQuery",
         })
         .multi(true)
