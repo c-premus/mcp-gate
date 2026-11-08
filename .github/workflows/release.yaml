@@ -110,6 +110,8 @@ jobs:
       # GHCR: signature pushed as a referrer manifest in the registry.
       # Docker Hub: --upload=false records the signature in Rekor only, for
       # the same orphan-manifest reason as the Docker Hub attest step above.
+      # cosign >= 3.1 refuses --upload=false unless --bundle names a local
+      # file (new bundle format is the default); the file is discarded.
       # Both steps retry: the public Fulcio/Rekor instances return transient
       # errors (a sibling project's release failed on a Fulcio 400 wrapping a
       # cancelled GCP KMS call), and cosign does not retry them itself. A
@@ -131,7 +133,8 @@ jobs:
           IMAGE_REF: docker.io/${{ env.DOCKERHUB_IMAGE }}@${{ steps.push.outputs.digest }}
         run: |
           for attempt in 1 2 3; do
-            cosign sign --yes --upload=false "$IMAGE_REF" && exit 0
+            cosign sign --yes --upload=false \
+              --bundle "$RUNNER_TEMP/dockerhub.sigstore.json" "$IMAGE_REF" && exit 0
             echo "::warning::cosign sign attempt $attempt failed"
             [ "$attempt" -lt 3 ] && sleep $((attempt * 20))
           done
