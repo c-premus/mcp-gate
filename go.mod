@@ -10,7 +10,7 @@ module github.com/c-premus/mcp-gate
 // shows the same for the next minor.
 go 1.27.0
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 require (
 	github.com/MicahParks/jwkset v0.11.4
