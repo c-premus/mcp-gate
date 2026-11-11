@@ -8,6 +8,12 @@ This file lists end-user-facing changes only — `feat`, `fix`, `chore`, and
 `BREAKING`. CI, test, refactor, and docs commits are visible in the git log
 but intentionally omitted here to keep the changelog signal-dense.
 
+## [0.21.19] - 2026-11-11
+
+### Maintenance
+
+- chore(deps): update go toolchain to v1.27.4 (#304)
+
 ## [0.21.18] - 2026-11-09
 
 ### Fixes
@@ -17,6 +23,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 ### Maintenance
 
+- chore(changelog): update for v0.21.18
 - chore(deps): update dependency renovatebot/renovate to v44.221.4 (#303)
 - chore(deps): update docker/login-action action to v4.8.0
 
@@ -1434,6 +1441,7 @@ but intentionally omitted here to keep the changelog signal-dense.
 
 - chore: add devcontainer from greek-fire template
 
+[0.21.19]: https://github.com/c-premus/mcp-gate/compare/v0.21.18...v0.21.19
 [0.21.18]: https://github.com/c-premus/mcp-gate/compare/v0.21.17...v0.21.18
 [0.21.17]: https://github.com/c-premus/mcp-gate/compare/v0.21.16...v0.21.17
 [0.21.16]: https://github.com/c-premus/mcp-gate/compare/v0.21.15...v0.21.16
